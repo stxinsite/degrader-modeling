@@ -1,7 +1,7 @@
 library(tidyverse)
 library(drc)
 
-all_data <- read_csv("~/data/Dynamite/2021-08-26_nano_bret_test.reformed.csv")
+all_data <- read_csv("data/2021-08-26_nano_bret_test.reformed.csv")
 all_data$mBU <- all_data$Lum_610 / all_data$Lum_450 * 1000
 
 

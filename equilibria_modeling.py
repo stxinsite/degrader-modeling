@@ -55,6 +55,7 @@ print(roots_1)
 # [ABC] at TF_50 should be approximately 0.5 * [ABC]_max
 roots_1[2] / roots[2]
 
+## for B_t > B_tmax, fsolve() is sensitive to the inital parameters
 sys_args = (A_t, C_t, K_AB, K_BC, alpha, TI_50)
 roots_2 = fsolve(equilibrium_sys, np.array([A_t * 1e-2, C_t * 1e-2, 0.5*min(A_t, C_t)]), args=sys_args)
 print(roots_2)
@@ -97,7 +98,7 @@ roots_5 = fsolve(equilibrium_sys, init_params, args=sys_args)
 print(roots_5)
 
 
-def fit_equilibrium_sys( data_obs, K_ED, K_DT, alpha = 1., beta = 0.5, kappa = 0.5):
+def fit_equilibrium_sys(data_obs, K_AB, K_BC, alpha = 1., beta = 0.5, kappa = 0.5):
     """
     Fit equilibrium binding parameters to NanoBRET data.
 
@@ -122,24 +123,33 @@ def fit_equilibrium_sys( data_obs, K_ED, K_DT, alpha = 1., beta = 0.5, kappa = 0
     results.params contains the fitted parameters for alpha, beta, kappa.
     """
 
-    def residual( params, data_obs, K_ED, K_DT):
-        EDT = params['EDT']
+    def residual(params, data_obs, K_AB, K_BC):
+        A_t = params['A_t']
+        C_t = params['C_t']
         alpha = params['alpha']
         beta = params['beta']
         kappa = params['kappa']
 
-        y_pred = ternary_quintic( data_obs[:,0], K_ED, K_DT, alpha, beta, kappa)
+        B_t = kappa * data_obs[:,0]
+
+        init_params = np.array([A_t, C_t, 0.5*min(A_t, C_t)])  # initial guesses for roots
+        sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_t)
+        roots = fsolve(equilibrium_sys, init_params, args=sys_args)
+
+        ABC_pred = roots[2]
+        y_pred = ABC_pred * beta
 
         return data_obs[:,1] - y_pred
 
     params = Parameters()
 
-    params.add( 'EDT', value = EDT min = 0., max = min(E_t, D_t, T_t))
+    params.add( 'A_t', value = A_t, min = 0.)
+    params.add( 'C_t', value = C_t, min = 0.)
     params.add( 'alpha', value = alpha, min = 1.)
-    params.add( 'beta', value = beta, min = 0., max = 1.)
+    params.add( 'beta', value = beta, min = 0.)
     params.add( 'kappa', value = kappa, min = 0., max = 1.)
 
-    result = minimize( residual, params, args = (y_obs, K_ED, K_DT),
+    result = minimize( residual, params, args = (data_obs, K_AB, K_BC),
                        method = 'least_squares', nan_policy = 'omit')
 
     return result

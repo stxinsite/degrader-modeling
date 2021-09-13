@@ -159,9 +159,9 @@ def residual(params, data_obs, K_AB, K_BC):
 
     B_t = np.multiply(data_obs[:,0], kappa)  # B_t = kappa * B_x
 
-    init_params = np.array([A_t, C_t, 0.5*min(A_t, C_t)])  # initial guesses for [A], [C], [ABC]
     ABC_pred = []  # predicted [ABC] that satisfies equilibrium system
     for B_i in B_t:
+        init_params = np.array([0.5*A_t, 0.5*C_t, 0.5*min(A_t, B_i, C_t)])  # initial guesses for [A], [C], [ABC]
         sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
         roots = fsolve(equilibrium_sys, init_params, args=sys_args)
         # print(roots)
@@ -208,7 +208,7 @@ res_all = []
 for minute in construct_df['Minutes'].unique().tolist():
     data_obs = construct_df[construct_df['Minutes'] == minute][['uM', 'mBU_corrected']].to_numpy()
 
-    res = fit_equilibrium_sys(data_obs, K_AB, K_BC, A_t = 10, C_t = 10, beta = 1)
+    res = fit_equilibrium_sys(data_obs, K_AB, K_BC, A_t = 5, C_t = 5, alpha = 1, beta = 1, kappa = 1)
     res_all.append(res)
 
 len(res_all)
@@ -218,9 +218,7 @@ for i in range(len(res_all)):
     res = res_all[i]
     res.params.pretty_print()
 
-    data_obs = construct_df[construct_df['Minutes'] == minutes_list[i]][['uM', 'mBU_corrected']].to_numpy()
-    resid_k = residual(params=res.params, data_obs=data_obs, K_AB=K_AB, K_BC=K_BC)
-    mBU_pred = data_obs[:,1] - resid_k
+    mBU_pred = data_obs[:,1] - res.residual
 
     plt.plot(data_obs[:,0], data_obs[:,1], label = 'observed', color = 'cyan')
     plt.plot(data_obs[:,0], mBU_pred, label = 'predicted', color = 'coral')

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-from scipy.optimize import fsolve, root
+from scipy.optimize import fsolve, root, check_grad
+from scipy.linalg import solve
 from math import sqrt
 from lmfit import Minimizer, minimize, fit_report, Parameters
 import matplotlib.pyplot as plt
@@ -12,23 +13,13 @@ ABBREVIATIONS:
 - C: target protein (E3 ligase)
 """
 
-nanobret_df = pd.read_csv("data/2021-08-26_nano_bret_test.reformed.csv")
-nanobret_df['Time'] = pd.to_datetime(nanobret_df['Time'])
-nanobret_df['mBU'] = nanobret_df['Lum_610'] / nanobret_df['Lum_450'] * 1000
-nanobret_df['B_x'] = nanobret_df['uM'] * 1e-6  # convert uM (micromolar) to molar units
-nanobret_df.head()
-
-nanobret_df['Construct'].unique().tolist()
-
-nanobret_df['Time'].unique()
-
 """GENERAL SOLUTION (COOPERATIVE EQUILIBRIA)"""
-def equilibrium_sys(params, *constants):
+def equilibrium_sys(variables, *constants):
     """"System of equations describes concentrations at equilibrium"""
     A_t, C_t, K_AB, K_BC, alpha, B_t = constants
-    A = params[0]
-    C = params[1]
-    ABC = params[2]
+    A = variables[0]
+    C = variables[1]
+    ABC = variables[2]
 
     F = np.empty((3))
     F[0] = A + K_BC * ABC / (alpha * C) + ABC - A_t
@@ -37,30 +28,20 @@ def equilibrium_sys(params, *constants):
 
     return F
 
-def f(params, B_t, *constants):
-    """"System of equations describes concentrations at equilibrium"""
-    A_t, C_t, K_AB, K_BC, alpha = constants
-    A = params[0]
-    C = params[1]
-    ABC = params[2]
-
-    F = np.empty((3))
-    F[0] = A + K_BC * ABC / (alpha * C) + ABC - A_t
-    F[1] = K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC - B_t
-    F[2] = C + K_AB * ABC / (alpha * A) + ABC - C_t
-    return F
-
-def jac_equilibrium(params, *constants):
+def jac_equilibrium(variables, *constants):
     A_t, C_t, K_AB, K_BC, alpha, B_t = constants
-    A = params[0]
-    C = params[1]
-    ABC = params[2]
+    A = variables[0]
+    C = variables[1]
+    ABC = variables[2]
+    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
+    return df_dy
 
-    return np.array([[1, -K_BC*ABC/(alpha*C**2), K_BC/(alpha*C) + 1],
-                     [-K_AB*K_BC*ABC/(alpha*A**2*C)-K_AB*ABC/(alpha*A**2),
-                      -K_AB*K_BC*ABC/(alpha*A*C**2)-K_BC*ABC/(alpha*C**2),
-                      K_AB*K_BC/(alpha*A*C)+K_BC/(alpha*C)+K_AB/(alpha*A) + 1],
-                     [-K_AB*ABC/(alpha*A**2), 1, K_AB/(alpha*A) + 1]])
+def solve_dfdy(A, C, ABC, K_AB, K_BC, alpha):
+    return np.array([[ 1, -K_BC * ABC / ( alpha * C**2 ), K_BC / ( alpha * C ) + 1 ],
+                     [ -K_AB * K_BC * ABC / ( alpha * A**2 * C ) -K_AB * ABC / ( alpha * A**2 ),
+                       -K_AB * K_BC * ABC / ( alpha * A * C**2 ) -K_BC * ABC / ( alpha * C**2 ),
+                       K_AB * K_BC / ( alpha * A * C ) +K_BC / ( alpha * C ) +K_AB / ( alpha * A ) + 1 ],
+                     [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ]])
 
 def noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_t):
     """NON-COOPERATIVE EQUILIBRIUM"""
@@ -73,68 +54,80 @@ def noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_t):
 
     return np.array([A, C, ABC])
 
-def residual(params, data_obs, K_AB, K_BC):
+def residual(params, constants, data):
     A_t = params['A_t']
     C_t = params['C_t']
     alpha = params['alpha']
-    beta = params['beta']
     kappa = params['kappa']
+    beta = params['beta']
 
-    B_t = np.multiply(data_obs[:,0], kappa)  # B_t = kappa * B_x
+    B_x = data[:,0]
+    B_t = kappa * B_x  # B_t = kappa * B_x
 
-    ABC_pred = []  # predicted [ABC] that satisfies equilibrium system
-    init_params = np.array([A_t*0.3, C_t*0.3, 1])  # initial guesses for [A], [C], [ABC]
-    for B_i in B_t:
+    K_AB, K_BC = constants
+
+    equilibrium_solutions = np.zeros((len(B_x), 3))  # predicted roots that satisfy equilibrium system
+    for i, B_i in np.ndenumerate(B_t):
+        init_guess = np.array([A_t*0.5, C_t*0.5, B_i*0.5])  # initial guesses for [A], [C], [ABC]
         sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
-        roots = root(equilibrium_sys, init_params, jac=jac_equilibrium, args=sys_args)
-        # print(roots)
-        # print(np.isclose(equilibrium_sys(roots, *sys_args), [0.0, 0.0, 0.0]).all())
-        ABC_pred.append(roots.x[2])
+        roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
+        equilibrium_solutions[i] = roots.x
 
-    y_pred = np.multiply(np.array(ABC_pred), beta)  # ^mBU = ^[ABC] * beta
-    resid = data_obs[:,1] - y_pred
-    squared_resid = np.square(resid)
+    ternary_pred = beta * equilibrium_solutions[:,2]
+    resid = ternary_pred - data[:,1]
+    # squared_resid = np.square(resid)
     # print(squared_resid.mean())
     return resid
 
-def df_dx(params, data_obs, K_AB, K_BC, y):
+def solve_dABCdx(x, y, B_x):
+    A_t, C_t, alpha, kappa = x
+    A, C, ABC = y
+
+
+    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
+    neg_df_dx = np.array([[1, 0, K_BC*ABC/(alpha**2*C), 0],
+                          [0, 0, K_AB*K_BC*ABC/(alpha**2*A*C)+K_AB*ABC/(alpha**2*A)+K_BC*ABC/(alpha**2*C), B_x],
+                          [0, 1, K_AB*ABC/(alpha**2*A), 0]])
+
+    dy_dx = solve(df_dy, neg_df_dx)  # d[ABC]/dx is the third row
+    return dy_dx[2,:]
+
+def residual_jacobian(params, constants, data):
     A_t = params['A_t']
     C_t = params['C_t']
     alpha = params['alpha']
-    beta = params['beta']
     kappa = params['kappa']
+    beta = params['beta']
+    B_x = data[:,0]
+    B_t = kappa * B_x  # B_t = kappa * B_x
 
-    return np.array([[1, 0, K_BC*ABC/(alpha**2*C), 0],
-                     [0, 0, K_AB*K_BC*ABC/(alpha**2*A*C)+K_AB*ABC/(alpha**2*A)+K_BC*ABC/(alpha**2*C), B_x],
-                     -, 1, K_AB*ABC/(alpha**2*A), 0])
+    K_AB, K_BC = constants
 
-solve_ABC()
+    dL_dx = np.empty((len(B_x), 5))
+    for i, B_i in np.ndenumerate(B_t):
+        init_guess = np.array([A_t*0.5, C_t*0.5, B_i*0.5])  # initial guesses for [A], [C], [ABC]
+        sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
+        roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
+        A, C, ABC = roots.x  # predicted roots that satisfy equilibrium system
+        dABC_dx = beta * solve_dABCdx(x=(A_t, C_t, alpha, kappa), y=(A, C, ABC), B_x=B_x[7])
+        dL_dx[i] = np.append(dABC_dx, ABC)
+    return dL_dx
 
-# def residual(params, data, K_AB, K_BC):
-#         A_t = params['A_t']
-#         C_t = params['C_t']
-#         alpha = params['alpha']
-#         beta = params['beta']
-#         kappa = params['kappa']
-#         B_t = kappa * data[:,0]
-#
-#         solve_ABC(A_t, C_t, K_AB, K_BC, alpha, B_t)
-#         return ABC_pred - data[:,1]
-
-def fit_equilibrium_sys(data_obs, K_AB, K_BC, A_t=1., C_t=1., alpha=1., beta=1., kappa=0.5):
+def fit_equilibrium_sys(data, K_AB, K_BC, A_t=1., C_t=1., alpha=1., kappa=0.5, beta=1.):
     """
-    Fit equilibrium binding parameters to NanoBRET data.
+    Fit equilibrium binding parameters to experimental data.
 
     Args:
 
-    data_obs: 2-d array; data_obs[:,0] gives the concentrations of degrader (B_x) and
-    data_obs[:,1] gives the corresponding observed response units (mBU).
+    data_obs: 2-d array; data_obs[:,0] gives the extracellular concentrations of degrader (B_x)
+    and data_obs[:,1] gives the corresponding observed response units (mBU).
 
-    K_AB, K_BC: floats; constants of dissociation for binary complex of E3 ligase (target protein)
-    and degrader.
+    K_AB, K_BC: floats; constants of dissociation for binary complex of E3 ligase (A)
+    or target protein (C) and degrader (B).
 
-    alpha, beta, kappa: floats; initial guesses for the values of the fitting
-    parameters.
+    A_t, C_t: floats: initial values for concentrations of E3 ligase and target protein.
+
+    alpha, beta, kappa: floats; initial values for model parameters.
 
     Returns:
 
@@ -147,16 +140,15 @@ def fit_equilibrium_sys(data_obs, K_AB, K_BC, A_t=1., C_t=1., alpha=1., beta=1.,
     params.add( 'A_t', value = A_t, min = 0.)
     params.add( 'C_t', value = C_t, min = 0.)
     params.add( 'alpha', value = alpha, min = 0.)
-    params.add( 'beta', value = beta, min = 0.)
     params.add( 'kappa', value = kappa, min = 0., max = 1.)
+    params.add( 'beta', value = beta, min = 0.)
 
-    # def mse(params, iter, resid, *fcn_args, **fcn_kws):
-    #     squared_resid = np.square(resid)
-    #     return squared_resid.mean()
+    # result = minimize( residual, params, args = (, data_obs),
+    #                    method = 'leastsq', nan_policy = 'omit')
 
-    result = minimize( residual, params, args = (data_obs, K_AB, K_BC),
-                       method = 'leastsq', nan_policy = 'omit')
-    return result
+    min = Minimizer(residual, params, fcn_args=(K_AB, K_BC), fcn_kws={'data': data})
+    out = min.leastsq(Dfun=residual_jacobian)
+    return out
 
 """
 UNIT TESTING
@@ -189,26 +181,30 @@ plt.xlabel('B_t')
 plt.show()
 
 true_data = np.stack((B_x, mBU), axis=1)
-# fit with init vals = true vals
-fit_equilibrium_sys(data_obs = true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t, C_t=C_t, alpha=alpha, beta=beta, kappa=kappa)
 
+# check gradients
+
+# check_grad(residual, residual_jacobian, [], (K_AB, K_BC), true_data)
+
+# fit with init vals = true vals
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t, C_t=C_t, alpha=alpha, kappa=kappa, beta=beta)
 
 # good fit
-fit_equilibrium_sys(data_obs = true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=5, alpha=3, beta=5, kappa=0.5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=10, alpha=3, kappa=0.5, beta=5)
 
-fit_equilibrium_sys(data_obs=true_data, K_AB=K_AB, K_BC=K_BC, A_t=7, C_t=10, alpha=2, beta=5, kappa=0.5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=7, C_t=10, alpha=2, kappa=0.5, beta=5)
 
-fit_equilibrium_sys(data_obs=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=20, alpha=2, beta=10, kappa=0.5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=20, alpha=2, beta=10, kappa=0.5)
 
 # init vals for A_t, C_t greater than true vals by factor of 5 is unstable
-res_4 = fit_equilibrium_sys(data_obs=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=10, alpha=2, beta=5, kappa=0.5)
+res_4 = fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=10, alpha=2, beta=5, kappa=0.5)
 v = res_4.params
-res_5 = fit_equilibrium_sys(data_obs=true_data, K_AB=K_AB, K_BC=K_BC,
+res_5 = fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC,
                             A_t = v['A_t'].value, C_t = v['C_t'].value, alpha=v['alpha'].value,
                             beta=v['beta'].value, kappa=v['kappa'].value)
 res_5
 # very poor fit
-res_2 = fit_equilibrium_sys(data_obs = true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t*10, C_t=C_t*10, alpha=1, beta=1, kappa=0.5)
+res_2 = fit_equilibrium_sys(data = true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t*10, C_t=C_t*10, alpha=1, beta=1, kappa=0.5)
 res_2
 
 # ## S18

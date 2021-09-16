@@ -43,6 +43,19 @@ def solve_dfdy(A, C, ABC, K_AB, K_BC, alpha):
                        K_AB * K_BC / ( alpha * A * C ) +K_BC / ( alpha * C ) +K_AB / ( alpha * A ) + 1 ],
                      [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ]])
 
+def solve_dABCdx(x, y, B_x):
+    """solves for dy/dx"""
+    A_t, C_t, alpha, kappa = x
+    A, C, ABC = y
+
+    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
+    neg_df_dx = np.array([[ 1, 0, K_BC * ABC / ( alpha**2 * C ), 0 ],
+                          [ 0, 0, K_AB * K_BC *ABC / ( alpha**2 * A * C ) +K_AB * ABC / ( alpha**2 * A ) +K_BC * ABC / ( alpha**2 * C ), B_x ],
+                          [ 0, 1, K_AB * ABC / ( alpha**2 * A ), 0 ]])
+
+    dy_dx = solve(df_dy, neg_df_dx)  # [ d[ABC]/d[A]_t d[ABC]/d[C]_t d[ABC]/dalpha d[ABC]/dkappa ] is the third row
+    return dy_dx[2,:]
+
 def noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_t):
     """NON-COOPERATIVE EQUILIBRIUM"""
     A = A_t - (A_t + B_t + K_AB - sqrt((A_t + B_t + K_AB)**2 - 4*A_t*B_t)) / 2
@@ -54,7 +67,7 @@ def noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_t):
 
     return np.array([A, C, ABC])
 
-def residual(params, constants, data):
+def residual(params, *constants, data):
     A_t = params['A_t']
     C_t = params['C_t']
     alpha = params['alpha']
@@ -62,54 +75,40 @@ def residual(params, constants, data):
     beta = params['beta']
 
     B_x = data[:,0]
-    B_t = kappa * B_x  # B_t = kappa * B_x
+    B_t = kappa * B_x
 
     K_AB, K_BC = constants
 
-    equilibrium_solutions = np.zeros((len(B_x), 3))  # predicted roots that satisfy equilibrium system
+    equilibrium_solutions = np.zeros((len(B_x), 3))  # predicted roots ([A],[C],[ABC]) that satisfy equilibrium system
     for i, B_i in np.ndenumerate(B_t):
         init_guess = np.array([A_t*0.5, C_t*0.5, B_i*0.5])  # initial guesses for [A], [C], [ABC]
         sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
         roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
         equilibrium_solutions[i] = roots.x
 
-    ternary_pred = beta * equilibrium_solutions[:,2]
-    resid = ternary_pred - data[:,1]
-    # squared_resid = np.square(resid)
-    # print(squared_resid.mean())
+    pred = beta * equilibrium_solutions[:,2]  # predicted response_i = beta * [ABC]_i
+    resid = pred - data[:,1]  # residuals = predicted - observed
     return resid
 
-def solve_dABCdx(x, y, B_x):
-    A_t, C_t, alpha, kappa = x
-    A, C, ABC = y
-
-
-    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
-    neg_df_dx = np.array([[1, 0, K_BC*ABC/(alpha**2*C), 0],
-                          [0, 0, K_AB*K_BC*ABC/(alpha**2*A*C)+K_AB*ABC/(alpha**2*A)+K_BC*ABC/(alpha**2*C), B_x],
-                          [0, 1, K_AB*ABC/(alpha**2*A), 0]])
-
-    dy_dx = solve(df_dy, neg_df_dx)  # d[ABC]/dx is the third row
-    return dy_dx[2,:]
-
-def residual_jacobian(params, constants, data):
+def residual_jacobian(params, *constants, data):
     A_t = params['A_t']
     C_t = params['C_t']
     alpha = params['alpha']
     kappa = params['kappa']
     beta = params['beta']
+
     B_x = data[:,0]
-    B_t = kappa * B_x  # B_t = kappa * B_x
+    B_t = kappa * B_x
 
     K_AB, K_BC = constants
 
-    dL_dx = np.empty((len(B_x), 5))
+    dL_dx = np.empty((len(B_x), len(params)))  # derivatives of residual function w.r.t. params
     for i, B_i in np.ndenumerate(B_t):
         init_guess = np.array([A_t*0.5, C_t*0.5, B_i*0.5])  # initial guesses for [A], [C], [ABC]
         sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
         roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
         A, C, ABC = roots.x  # predicted roots that satisfy equilibrium system
-        dABC_dx = beta * solve_dABCdx(x=(A_t, C_t, alpha, kappa), y=(A, C, ABC), B_x=B_x[7])
+        dABC_dx = beta * solve_dABCdx(x=(A_t, C_t, alpha, kappa), y=(A, C, ABC), B_x=B_x[i])
         dL_dx[i] = np.append(dABC_dx, ABC)
     return dL_dx
 
@@ -183,14 +182,13 @@ plt.show()
 true_data = np.stack((B_x, mBU), axis=1)
 
 # check gradients
-
 # check_grad(residual, residual_jacobian, [], (K_AB, K_BC), true_data)
 
 # fit with init vals = true vals
 fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t, C_t=C_t, alpha=alpha, kappa=kappa, beta=beta)
 
 # good fit
-fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=10, alpha=3, kappa=0.5, beta=5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=5, alpha=1.5, kappa=0.5, beta=5)
 
 fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=7, C_t=10, alpha=2, kappa=0.5, beta=5)
 

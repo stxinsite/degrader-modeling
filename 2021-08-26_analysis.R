@@ -40,15 +40,15 @@ for (construct in constructs) {
     } else {
         all_reformed_data <- rbind(all_reformed_data, construct_tibble) %>% as_tibble()
     }
-    #    p <- ggplot(construct_tibble, aes(x = uM, y = mBU_corrected, col = as.factor(Seconds / 60))) +
-    #        theme_bw() +
-    #        geom_point() +
-    #        geom_line() +
-    #        scale_x_log10(breaks = unique(construct_tibble$uM)) +
-    #        guides(col = guide_legend(title = "Minutes")) +
-    #        labs(title = construct)
-    #    p
-    #    ggsave(paste0("~/data/Dynamite/", Sys.Date(), "_", str_replace_all(construct, " ", "_"), "_nanobret_test.png"), dpi=1000)
+     p <- ggplot(construct_tibble, aes(x = uM, y = mBU_corrected, col = as.factor(Seconds / 60))) +
+         theme_bw() +
+         geom_point() +
+         geom_line() +
+         scale_x_log10(breaks = unique(construct_tibble$uM)) +
+         guides(col = guide_legend(title = "Minutes")) +
+         labs(title = construct)
+     p
+     ggsave(paste0("~/data/Dynamite/", Sys.Date(), "_", str_replace_all(construct, " ", "_"), "_nanobret_test.png"), dpi=1000)
 }
 
 rm("all_ec50")

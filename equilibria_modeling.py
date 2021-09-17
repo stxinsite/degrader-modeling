@@ -4,6 +4,7 @@ from scipy.optimize import fsolve, root, check_grad
 from scipy.linalg import solve
 from math import sqrt
 from lmfit import Minimizer, minimize, fit_report, Parameters
+from collections import OrderedDict
 import matplotlib.pyplot as plt
 
 """
@@ -149,6 +150,31 @@ def fit_equilibrium_sys(data, K_AB, K_BC, A_t=1., C_t=1., alpha=1., kappa=0.5, b
     out = min.leastsq(Dfun=residual_jacobian)
     return out
 
+def create_params_dict(arr):
+    params = OrderedDict()
+    params['A_t'] = arr[0]
+    params['C_t'] = arr[1]
+    params['alpha'] = arr[2]
+    params['kappa'] = arr[3]
+    params['beta'] = arr[4]
+    return params
+
+def residual_wrapper(arr, K_AB, K_BC, data, data_idx):
+    params = create_params_dict(arr)
+    res = residual(params, K_AB, K_BC, data=data)
+    if data_idx >= len(data):
+        return None
+    else:
+        return res[data_idx]
+
+def residual_jacobian_wrapper(arr, K_AB, K_BC, data, data_idx):
+    params = create_params_dict(arr)
+    res = residual_jacobian(params, K_AB, K_BC, data=data)
+    if data_idx >= len(data):
+        return None
+    else:
+        return res[data_idx,:]
+
 """
 UNIT TESTING
 units in micromolar
@@ -167,8 +193,8 @@ ABC = []  # predicted [ABC] that satisfies equilibrium system
 for B_i in B_t:
     sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
     roots = fsolve(equilibrium_sys, init_params, args=sys_args)
-    print(roots)
-    print(np.isclose(equilibrium_sys(roots, *sys_args), [0.0, 0.0, 0.0]).all())
+    # print(roots)
+    # print(np.isclose(equilibrium_sys(roots, *sys_args), [0.0, 0.0, 0.0]).all())
     ABC.append(roots[2])
 
 mBU = np.multiply(np.array(ABC), beta)  # mBU = [ABC] * beta
@@ -182,17 +208,24 @@ plt.show()
 true_data = np.stack((B_x, mBU), axis=1)
 
 # check gradients
-# check_grad(residual, residual_jacobian, [], (K_AB, K_BC), true_data)
+for i in range(len(true_data)):
+    print(check_grad(residual_wrapper, residual_jacobian_wrapper, [1, 2, 1.5, 0.75, 5], K_AB, K_BC, true_data, i))
 
 # fit with init vals = true vals
 fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t, C_t=C_t, alpha=alpha, kappa=kappa, beta=beta)
 
-# good fit
-fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=5, alpha=1.5, kappa=0.5, beta=5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=1, C_t=2, alpha=3, kappa=0.5, beta=5)
+
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=2, C_t=4, alpha=1.5, kappa=0.75, beta=5)
+
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=5, C_t=10, alpha=1.5, kappa=0.75, beta=5)
 
 fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=7, C_t=10, alpha=2, kappa=0.5, beta=5)
 
-fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=20, alpha=2, beta=10, kappa=0.5)
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=7, C_t=10, alpha=2, beta=10, kappa=0.5)
+
+fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=0.5, C_t=1, alpha=1, kappa=0.5, beta=1)
+
 
 # init vals for A_t, C_t greater than true vals by factor of 5 is unstable
 res_4 = fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC, A_t=10, C_t=10, alpha=2, beta=5, kappa=0.5)
@@ -201,14 +234,7 @@ res_5 = fit_equilibrium_sys(data=true_data, K_AB=K_AB, K_BC=K_BC,
                             A_t = v['A_t'].value, C_t = v['C_t'].value, alpha=v['alpha'].value,
                             beta=v['beta'].value, kappa=v['kappa'].value)
 res_5
+
 # very poor fit
 res_2 = fit_equilibrium_sys(data = true_data, K_AB=K_AB, K_BC=K_BC, A_t=A_t*10, C_t=C_t*10, alpha=1, beta=1, kappa=0.5)
 res_2
-
-# ## S18
-# E = K_ED * (E_t - EDT) / (K_ED + D)
-# ## S19
-# T = K_DT * (T_t - EDT) / (K_DT + D)
-#
-# ## S38
-# ED * DT = (E * D**2 * T) / (K_ED * K_DT)

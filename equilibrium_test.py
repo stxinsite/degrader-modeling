@@ -15,7 +15,46 @@ nanobret_df['mBU'] = nanobret_df['Lum_610'] / nanobret_df['Lum_450'] * 1000
 nanobret_df['B_x'] = nanobret_df['uM'] * 1e-6  # convert uM (micromolar) to molar units
 nanobret_df.head()
 
-nanobret_df['Construct'].unique().tolist()
+corrected_nanobret_df = pd.DataFrame(columns=['Minutes', 'uM', 'mBU_corrected', 'stdev', 'Construct'])
+
+construct_list = nanobret_df['Construct'].unique().tolist()
+construct_list
+
+for construct in construct_list:
+    construct_data = nanobret_df[nanobret_df['Construct'] == construct]
+    min_time = construct_data['Time'].min()
+    construct_data.loc[:, 'Minutes'] = (construct_data.loc[:,'Time'] - min_time) / pd.Timedelta(minutes=1)
+    timepoints = []
+    mean_corrected_mbus = []
+    concentrations = []
+    sds = []
+    for timepoint in construct_data['Minutes'].unique().tolist():
+        construct_data_timepoint = construct_data[construct_data['Minutes'] == timepoint]
+        control_mean_mBU = construct_data_timepoint[~construct_data_timepoint['With_618']]['mBU'].mean()  # not With_618
+        control_sd_mBU = construct_data_timepoint[~construct_data_timepoint['With_618']]['mBU'].std()  # not With_618
+        construct_data_timepoint = construct_data_timepoint[construct_data_timepoint['With_618']]  # With_618
+        for concentration in construct_data_timepoint['uM'].unique().tolist():
+            sample_mean_mBU = construct_data_timepoint[construct_data_timepoint['uM'] == concentration]['mBU'].mean()
+            sample_sd_mBU = construct_data_timepoint[construct_data_timepoint['uM'] == concentration]['mBU'].std()
+            sample_mean_corrected_mBU = sample_mean_mBU - control_mean_mBU
+            timepoints.append(timepoint)
+            mean_corrected_mbus.append(sample_mean_corrected_mBU)
+            concentrations.append(concentration)
+            sds.append(sample_sd_mBU)
+    construct_df = pd.DataFrame({'Minutes': timepoints,
+                                 'uM': concentrations,
+                                 'mBU_corrected': mean_corrected_mbus,
+                                 'stdev': sds,
+                                 'Construct': construct})
+    construct_df = construct_df.sort_values(by=['Minutes','uM'])
+    corrected_nanobret_df = corrected_nanobret_df.append(construct_df)
+    print(construct)
+    print(construct_df['Minutes'].unique().tolist())
+    print(construct_df.shape)
+
+corrected_nanobret_df.shape
+corrected_nanobret_df.to_pickle("data/corrected_nanobret_df.pkl")
+
 
 construct = 'VHL_WT SMARCA2_WT'
 construct_data = nanobret_df[nanobret_df['Construct'] == construct]

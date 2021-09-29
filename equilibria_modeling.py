@@ -8,7 +8,7 @@ from math import sqrt, exp, log
 from lmfit import Minimizer, minimize, fit_report, Parameters
 import pymc3 as pm
 import arviz as az
-# import theano.tensor as tt
+import theano.tensor as tt
 from theano import shared
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -321,7 +321,7 @@ NANOBRET DATA
 K_AB = 250e-3
 K_BC = 1800e-3
 
-corrected_nanobret_df = pd.read_pickle("data/corrected_nanobret_df.pkl")
+corrected_nanobret_df = pd.read_csv("data/corrected_nanobret_df.csv")
 sorted_min = sorted(corrected_nanobret_df['Minutes'].unique().tolist())
 sorted_min[5]
 sorted_min[6]
@@ -332,6 +332,7 @@ nanobret_subset.loc[:,['mBU_corrected']] = nanobret_subset['mBU_corrected'] - mi
 g = sns.relplot(data=nanobret_subset, x='uM', y='mBU_corrected', hue='Construct')
 g.set(xscale = 'log')
 
+nanobret_subset.shape
 nanobret_subset.head()
 
 construct_dict = {
@@ -343,9 +344,13 @@ construct_dict = {
 }
 nanobret_subset.Construct = [construct_dict[item] for item in nanobret_subset.Construct]
 nanobret_subset = nanobret_subset.loc[:,['uM', 'mBU_corrected', 'Construct']]
+nanobret_subset.shape
 nanobret_subset.head()
 
-"""PyMC3 Model"""
+"""
+PyMC3
+Example
+"""
 # True parameter values
 alpha, sigma = 1, 1
 beta = [1, 2.5]
@@ -375,7 +380,11 @@ with basic_model:
 
 with basic_model:
     # draw 500 posterior samples
-    trace = pm.sample(500, return_inferencedata=False)
+    trace = pm.sample(500)
+
+az.plot_trace(trace)
+
+nanobret_subset_arr = nanobret_subset[['uM', 'mBU_corrected', 'Construct']].to_numpy()
 
 
 with pm.Model() as model:
@@ -388,29 +397,35 @@ with pm.Model() as model:
     # data[:,0] : uM values
     # data[:,1] : mBU values (observed)
     # data[:,2] : Construct integer values
+    for i in range(len(nanobret_subset_arr)):
+        init_guess = noncoop_equilibrium(A_t, C_t, K_AB, K_BC, nanobret_subset_arr[i,0])
+        print(init_guess)
+
     data = pm.Data('data', value=nanobret_subset)
-    for i in range(len(data)):
-        init_guess = noncoop_equilibrium(A_t, C_t, K_AB, K_BC, data[i,0])
-        X = shared(init_guess)
-
-    equilibrium_solutions = np.zeros((len(B_x), 3))  # predicted roots ([A],[C],[ABC]) that satisfy equilibrium system
-    for i, B_i in np.ndenumerate(B_t):
-        init_guess = noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_i)  # initial guesses for [A], [C], [ABC]
-        sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
-        roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
-        equilibrium_solutions[i] = roots.x
-
-    print(len(data))
-
-    a = noncoop_equilibrium(5e-11, 1e-5, 1.8e-6, 2.5e-7, 1.12e-6)
-    x = shared(a)
-    pred = pm.Deterministic('ABC', x[2])
-
-    # x = pm.Data('x', [1., 2., 3.])
-    y = pm.Data('y', [1., 2., 3.])
-
-    mu = pm.Normal('mu', mu=0, sigma=1)
-    obs = pm.Normal('obs', mu=mu, sigma=1, observed=np.random.randn(100))
+    data[2,2]
+    print(len(data.get_value()))
+    #
+    # for i in range(len(data)):
+    #     init_guess = noncoop_equilibrium(A_t, C_t, K_AB, K_BC, data[i,0])
+    #     X = shared(init_guess)
+    #
+    # equilibrium_solutions = np.zeros((len(B_x), 3))  # predicted roots ([A],[C],[ABC]) that satisfy equilibrium system
+    # for i, B_i in np.ndenumerate(B_t):
+    #     init_guess = noncoop_equilibrium(A_t, C_t, K_AB, K_BC, B_i)  # initial guesses for [A], [C], [ABC]
+    #     sys_args = (A_t, C_t, K_AB, K_BC, alpha, B_i)
+    #     roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
+    #     equilibrium_solutions[i] = roots.x
+    #
+    #
+    # a = noncoop_equilibrium(5e-11, 1e-5, 1.8e-6, 2.5e-7, 1.12e-6)
+    # x = shared(a)
+    # pred = pm.Deterministic('ABC', x[2])
+    #
+    # # x = pm.Data('x', [1., 2., 3.])
+    # y = pm.Data('y', [1., 2., 3.])
+    #
+    # mu = pm.Normal('mu', mu=0, sigma=1)
+    # obs = pm.Normal('obs', mu=mu, sigma=1, observed=np.random.randn(100))
 
 x.get_value()
 pred

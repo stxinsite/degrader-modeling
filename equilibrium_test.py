@@ -53,7 +53,10 @@ for construct in construct_list:
     print(construct_df.shape)
 
 corrected_nanobret_df.shape
+
+corrected_nanobret_df.to_csv("data/corrected_nanobret_df.csv", index=False)
 corrected_nanobret_df.to_pickle("data/corrected_nanobret_df.pkl")
+
 
 
 construct = 'VHL_WT SMARCA2_WT'

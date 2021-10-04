@@ -1,0 +1,95 @@
+---
+title: "Fitting Stan"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rstan)
+library(shinystan)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+options(mc.cores=parallel::detectCores())
+```
+
+
+# NANOBRET data processing
+```{r}
+nanobret_csv <- read.csv("data/corrected_nanobret_df.csv")
+
+sorted_min <- sort(unique(nanobret_csv$Minutes))
+
+nanobret_96 <- nanobret_csv %>% 
+  filter(Minutes %in% sorted_min[6:7]) %>%
+  mutate(mBU_corrected = mBU_corrected - min(mBU_corrected))
+
+ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = Construct)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10()
+
+nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
+  "VHL_WT SMARCA2_L1415S" = 1,
+  "VHL_WT SMARCA2_E1420S" = 2,
+  "VHL_R69Q SMARCA2_WT" = 3,
+  "VHL_Y112F SMARCA2_WT" = 4,
+  "VHL_WT SMARCA2_WT" = 5
+))
+
+summary(nanobret_96)
+```
+
+# STAN
+```{r}
+data <- list(
+  N = nrow(nanobret_96),
+  N_construct = length(unique(nanobret_96$construct_int)),
+  K_Ds = c(1.8, .25),
+  B_x = nanobret_96$uM,
+  construct = nanobret_96$construct_int,
+  mBU = nanobret_96$mBU_corrected
+)
+
+fit_nanobret <- stan(file = "equilibrium.stan", 
+                     data = data,
+                     chains = 4,
+                     warmup = 1000,
+                     iter = 10000,
+                     refresh = 0,
+                     control = list(adapt_delta = 0.9),
+                     )
+```
+```{r}
+print(fit_nanobret)
+```
+
+```{r}
+pairs(fit_nanobret)
+plot(fit_nanobret)
+traceplot(fit_nanobret)
+```
+
+
+
+
+
+
+```{r}
+fit1 <- stan(file = "equilibrium.stan", algorithm = "Fixed_param", 
+             data = list(K_Ds = c(5e-8, 1e-9),
+                         B_x = 9.18e-9),
+             iter = 1, chains = 1)
+
+extract(fit1)
+```
+
+
+
+
+

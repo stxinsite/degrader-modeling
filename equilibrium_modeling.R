@@ -34,9 +34,11 @@ equilibrium_jac <- function(x, parms) {
 
   df_dy <- rbind(
     c(A, -K_BC * ABC / (alpha * C), K_BC * ABC / (alpha * C) + ABC),
-    c(-K_AB * K_BC * ABC / (alpha * A * C) - K_AB * ABC / (alpha * A),
+    c(
+      -K_AB * K_BC * ABC / (alpha * A * C) - K_AB * ABC / (alpha * A),
       -K_AB * K_BC * ABC / (alpha * A * C) - K_BC * ABC / (alpha * C),
-      K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC),
+      K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC
+    ),
     c(-K_AB * ABC / (alpha * A), C, K_AB * ABC / (alpha * A) + ABC)
   )
   return(df_dy)
@@ -63,55 +65,68 @@ noncoop_f <- function(parms) {
 ################################################################################
 test_roots <- function(parms) {
   noncoop_sols <- noncoop_f(head(parms, -1))
+  noncoop_sols[noncoop_sols == 0] <- 1e-19 # replace 0 with small epsilon
   init_guess <- log(noncoop_sols)
-  equilibrium_roots <- nleqslv(
-    x = init_guess,
-    fn = equilibrium_f,
-    # jac = equilibrium_jac,
-    parms = parms
-  )
-  coop_sols <- exp(equilibrium_roots$x)
-  print(noncoop_sols)
-  print(coop_sols)
-}
-
-test_roots(c(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1))
-
-test_roots(c(5e-11, 1.2e-2, 1e-5, 5e-8, 1e-9, 1))
-
-test_roots(c(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1))
-
-test_roots(c(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1))
-
-test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 1))
-
-test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 30))
-################################################################################
-## NIMBLE FUNCTIONS ##
-################################################################################
-wrap_solve <- function(A_t, B_t, C_t, K_AB, K_BC, alpha) {
-  parms <- c(A_t, B_t, C_t, K_AB, K_BC, alpha)
-  init_guess <- noncoop_f(head(parms, -1))
   equilibrium_roots <- nleqslv(
     x = init_guess,
     fn = equilibrium_f,
     jac = equilibrium_jac,
     parms = parms
   )
-  return(equilibrium_roots$x[3])
+  coop_sols <- exp(equilibrium_roots$x)
+  print(noncoop_sols)
+  print(coop_sols)
+  print(equilibrium_roots$fvec)
+}
+
+# UNIT TEST
+test_roots(c(5e-11, 0, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 1.2e-2, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 1))
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 30))
+# as alpha gets larger, ABC increases and reduces A more than C
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 50))
+################################################################################
+## NIMBLE FUNCTIONS ##
+################################################################################
+wrap_solve <- function(parms) {
+  noncoop_sols <- noncoop_f(head(parms, -1))
+  noncoop_sols[noncoop_sols == 0] <- 1e-19 # replace 0 with small epsilon
+  init_guess <- log(noncoop_sols)
+  equilibrium_roots <- nleqslv(
+    x = init_guess,
+    fn = equilibrium_f,
+    jac = equilibrium_jac,
+    parms = parms
+  )
+  return(exp(equilibrium_roots$x[3]))
 }
 
 nimble_solve <- nimbleRcall(
-  prototype = function(A_t = double(0),
-                       B_t = double(0),
-                       C_t = double(0),
-                       K_AB = double(0),
-                       K_BC = double(0),
-                       alpha = double(0)) {},
+  prototype = function(parms = double(1)) {},
   returnType = double(0),
   Rfun = "wrap_solve"
 )
 
+testModelCode <- nimbleCode({
+    ABC[1] <- nimble_solve(x[1:6])
+})
+
+testModel <- nimbleModel(testModelCode, check = FALSE, calculate = FALSE)
+
+ctestModel <- compileNimble(testModel)
+
+## Let's see if it works:
+ctestModel$x <- c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 50)
+
+## Answer directly from nearPD:
+wrap_solve(ctestModel$x)
+## Answer via the nimble model:
+ctestModel$calculate('ABC[1]')
+ctestModel$ABC  #This result should match the answer calculated directly from nearPD.
 ################################################################################
 ## NANOBRET DATA ##
 ################################################################################
@@ -135,7 +150,7 @@ nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
   "VHL_WT SMARCA2_WT" = 5
 ))
 
-head(nanobret_96)
+summary(nanobret_96)
 ################################################################################
 ## NANOBRET NIMBLE MODEL ##
 ################################################################################
@@ -143,47 +158,60 @@ head(nanobret_96)
 code <- nimbleCode({
   A_t ~ dgamma(.001, .001)
   C_t ~ dgamma(.001, .001)
-  relative_constraint ~ dconstraint(A_t < C_t)
-  # ratio_constraint ~ dconstraint(0.1 <= (A_t / C_t))
+  constraint ~ dconstraint(0.1 * C_t <= A_t & A_t <= C_t)
   beta ~ dgamma(.001, .001)
   kappa ~ dunif(0, 1)
-  for (i in 1:n_constructs) {
-    alpha[i] ~ dgamma(mean = 30, sd = 3)
+  for (i in 1:N_constructs) {
+    alpha[i] ~ dgamma(mean = 30, sd = 5)
+    sigma[i] ~ dgamma(.001, .001)
   }
 
   for (i in 1:N) {
     B_t[i] <- B_x[i] * kappa
-    ABC[i] <- nimble_solve(A_t, B_t[i], C_t, K_AB, K_BC, alpha[construct_int[i]])
+    ABC[i] <- nimble_solve(c(A_t, B_t[i], C_t, K_AB, K_BC, alpha[construct_int[i]]))
     mu[i] <- ABC[i] * beta
-    y[i] ~ dnorm(mean = mu[i], sd = 0.05)
+    y[i] ~ dnorm(mean = mu[i], sd = sigma[construct_int[i]])
   }
 })
 
 # list of fixed constants
 constants <- list(
-  n_constructs = length(unique(nanobret_96$construct_int)),
+  N_constructs = length(unique(nanobret_96$construct_int)),
   B_x = nanobret_96$uM,
   construct_int = nanobret_96$construct_int,
   N = nrow(nanobret_96),
-  K_AB = 1.8e-6,
-  K_BC = 2.5e-7
+  K_AB = 1.8,
+  K_BC = .25
 )
 
 # list specifying model data
 data <- list(
   y = nanobret_96$mBU_corrected,
-  relative_constraint = 1
-  # ratio_constraint = 1
+  constraint = 1
 )
 
 # list specifying initial values
+# VERIFY UNIFORMITY OF MEASUREMENT UNITS
 inits <- list(
   A_t = 1,
   C_t = 2,
   beta = 1,
   kappa = 0.75,
-  alpha = rep(30, length(unique(nanobret_96$construct_int)))
+  alpha = rep(30, length(unique(nanobret_96$construct_int))),
+  sigma = rep(1, length(unique(nanobret_96$construct_int)))
 )
+
+inits_f <- function() {
+  A_t <- runif(n = 1, min = 0.5, max = 10)
+  list(
+    A_t = A_t,
+    C_t = 2 * A_t,
+    beta = runif(n = 1, min = 1, max = 10),
+    kappa = runif(n = 1, min = 0.25, max = 1),
+    alpha = rnorm(n = 5, mean = 30, sd = 4),
+    sigma = rgamma(n = 5, shape = 1, scale = 1)
+  )
+}
 
 # build the R model object
 Rmodel <- nimbleModel(
@@ -210,55 +238,41 @@ Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
 ################################################################################
 ## run multiple MCMC chains ###
 ################################################################################
-samples <- runMCMC(Cmcmc, niter = 10000, nburnin = 1000, samplesAsCodaMCMC = TRUE)
+samples <- runMCMC(Cmcmc, niter = 20000, nburnin = 1000, thin = 2, samplesAsCodaMCMC = TRUE)
+samples_n3 <- runMCMC(Cmcmc, nchains = 3, niter = 10000, nburnin = 1000, thin = 2, inits = inits_f, samplesAsCodaMCMC = TRUE)
+
 samplesSummary(samples)
+lapply(samples_n3, samplesSummary)
+
+effectiveSize(samples)
+lapply(samples_n3, effectiveSize)
+
+save(samples, file = "samples.RData")
 
 samplesPlot(samples)
 
-effectiveSize(samples)
-
+################################################################################
+## Plot predicted ABC ##
+################################################################################
 nanobret_96_1 <- nanobret_96 %>% filter(construct_int == 1)
-for (B_t in nanobret_96_1$uM) {
-  parms <- c(.697, B_t, 2.594, 1.8e-6, 2.5e-7, 27.327)
-  noncoop_sols <- noncoop_f(head(parms, -1))
-  init_guess <- log(noncoop_sols + 1)
-  equilibrium_roots <- nleqslv(
-    x = init_guess,
-    fn = equilibrium_f,
-    # jac = equilibrium_jac,
-    parms = parms
-  )
-  print(exp(equilibrium_roots$x))
-  # ABC <- wrap_solve(A_t = 0.697, B_t = B_t, C_t = 2.594, K_AB = 1.8e-6, K_BC = 2.5e-7, alpha = 27.327)
-  # pred <- ABC * 7.437
-  # print(ABC)
-  # print(pred)
+unique(nanobret_96_1$Construct)
+
+samplesSum <- samplesSummary(samples)
+mBU_pred <- numeric(length = nrow(nanobret_96_1))
+for (i in 1:nrow(nanobret_96_1)) {
+  parms <- c(.051, nanobret_96_1$uM[i],
+             .1611, 1.8, .25, 26.9)
+  ABC <- wrap_solve(parms = parms)
+  mBU_pred[i] <- ABC * samplesSum['beta','Mean']
 }
 
-parms <- c(.697, 5.0, 2.594, 1.8e-6, 2.5e-7, 27.327)
-init_guess <- noncoop_f(head(parms, -1))
-init_guess
-log(init_guess)
-equilibrium_roots <- nleqslv(
-  x = log(init_guess),
-  fn = equilibrium_f,
-  # jac = equilibrium_jac,
-  parms = parms,
-  jacobian = TRUE
-)
+nanobret_96_1$mBU_pred <- mBU_pred
 
-equilibrium_jac(x = c(2.916e-7, 2.695e-7, .362), parms = parms)
-
-equilibrium_roots$fvec
-exp(equilibrium_roots$x)
-
-wrap_solve(A_t = 0.697, B_t = 5, C_t = 2.594, K_AB = 1.8e-6, K_BC = 2.5e-7, alpha = 27.327)
-
-ggplot(nanobret_96_1, aes(x = uM, y = mBU_corrected)) +
+df <- data.frame(uM = rep(nanobret_96_1$uM, 2),
+                 mBU = c(nanobret_96_1$mBU_corrected, nanobret_96_1$mBU_pred),
+                 type = c(rep("observed", nrow(nanobret_96_1)), rep("predicted", nrow(nanobret_96_1)))
+               )
+ggplot(df, aes(x = uM, y = mBU, color = type)) +
   geom_point() +
+  geom_line() +
   scale_x_log10()
-
-# run 3 chains of the crossLevel MCMC
-samplesList <- runMCMC(Cmcmc, niter = 1000, nchains = 3)
-
-lapply(samplesList, dim)

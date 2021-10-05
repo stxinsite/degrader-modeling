@@ -25,8 +25,10 @@ nanobret_csv <- read.csv("data/corrected_nanobret_df.csv")
 
 sorted_min <- sort(unique(nanobret_csv$Minutes))
 
+# subtract min mBU within Construct group
 nanobret_96 <- nanobret_csv %>% 
   filter(Minutes %in% sorted_min[6:7]) %>%
+  group_by(Construct) %>%
   mutate(mBU_corrected = mBU_corrected - min(mBU_corrected))
 
 ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = Construct)) +
@@ -47,26 +49,46 @@ summary(nanobret_96)
 
 # STAN
 ```{r}
-data <- list(
+# model data
+stan_data <- list(
   N = nrow(nanobret_96),
   N_construct = length(unique(nanobret_96$construct_int)),
-  K_Ds = c(1.8, .25),
+  K_Ds = c(1.8, .25),  # K_Ds in uM
   B_x = nanobret_96$uM,
   construct = nanobret_96$construct_int,
   mBU = nanobret_96$mBU_corrected
 )
 
+inits_f <- function() {
+  list(
+    A_t = runif(1, min = 0, max = 5),
+    C_t = runif(1, min = 0, max = 5),
+    alpha = rnorm(5, mean = 30, sd = 3),
+    kappa = runif(1, min = 0.5, max = 1),
+    beta = 1
+  )
+}
+```
+
+```{r}
+# fit stan
 fit_nanobret <- stan(file = "equilibrium.stan", 
-                     data = data,
-                     chains = 4,
+                     data = stan_data,
+                     chains = 2,
                      warmup = 1000,
                      iter = 2000,
-                     control = list(adapt_delta = 0.9),
+                     init = inits_f,
+                     cores = 2,
+                     # control = list(adapt_delta = 0.9),
                      )
 ```
-```{r}
-saveRDS(fit_nanobret, "fit_nanobret.rds")
 
+```{r}
+# save stan_fit object
+saveRDS(fit_nanobret, "fit_nanobret.rds")
+```
+
+```{r}
 print(fit_nanobret)
 ```
 

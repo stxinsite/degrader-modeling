@@ -32,10 +32,10 @@ functions {
     // x_r: data K_AB, K_BC
     // sols = exp(y): [A], [C], [ABC]
     vector[3] sols;
+    vector[3] z;  // the system of mass-action equations
     real A;
     real C;
     real ABC;
-    vector[3] z;  // the system of mass-action equations
 
     real A_t = theta[1];
     real B_t = theta[2];
@@ -61,7 +61,7 @@ data {
   int<lower=1> N_construct;  // number of constructs
   real<lower=0> K_Ds[2];  // [K_AB, K_BC]
   vector[N] B_x;  // extracellular [B]_x
-  int construct[N];  // array of integers identifying construct of data point i
+  int construct[N];  // array of integers identifying construct of row i
   vector[N] mBU;  // observed mBU
 }
 
@@ -75,14 +75,14 @@ parameters {
   real<lower=0> alpha[N_construct];  // alpha_c for each construct c
   real<lower=0, upper=1> kappa;
   real<lower=0> beta;
-  real<lower=0> sigma;
+  // real<lower=0> sigma;
 }
 
 model {
   A_t ~ gamma(.001, .001);
   C_t ~ gamma(.001, .001);
   for (j in 1:N_construct) {
-    alpha[j] ~ gamma(75, .4);
+    alpha[j] ~ gamma(75, 2.5);  // mean = 30, var = 12
   }
   kappa ~ uniform(0, 1);
   beta ~ gamma(.001, .001);
@@ -93,9 +93,9 @@ model {
     vector[3] y_init = noncoop_sols(parms);  // non-cooperative solutions as initial guesses
     vector[3] y_initLn = log(y_init);  // log-transformation
     vector[4] theta = [A_t, B_t, C_t, alpha[construct[i]]]';  // arguments for algebra_solver()
-    vector[3] coop_sols = exp(algebra_solver(system, y_initLn, theta, K_Ds, x_i));
-    real predmBU = coop_sols[3] * beta;  // ABC * beta
-    mBU[i] ~ normal(predmBU, sigma);  
+    vector[3] coop_sols = exp(algebra_solver(system, y_initLn, theta, K_Ds, x_i));  // exponentiate for cooperative solutions
+    real predmBU = coop_sols[3] * beta;  // mBU = ABC * beta
+    mBU[i] ~ normal(predmBU, 0.1);  // mu = mBU, sigma = 0.1
   }
 }
 

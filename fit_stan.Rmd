@@ -60,12 +60,13 @@ fit_nanobret <- stan(file = "equilibrium.stan",
                      data = data,
                      chains = 4,
                      warmup = 1000,
-                     iter = 10000,
-                     refresh = 0,
+                     iter = 2000,
                      control = list(adapt_delta = 0.9),
                      )
 ```
 ```{r}
+saveRDS(fit_nanobret, "fit_nanobret.rds")
+
 print(fit_nanobret)
 ```
 

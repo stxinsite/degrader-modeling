@@ -1,0 +1,294 @@
+---
+title: "Equilibrium System of Equations"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(nleqslv)
+library(dplyr)
+library(ggplot2)
+library(rstan)
+```
+
+```{r}
+equilibrium_f <- function(x, parms) {
+  A_t <- parms[1]
+  B_t <- parms[2]
+  C_t <- parms[3]
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+  alpha <- parms[6]
+
+  A <- exp(x[1])
+  C <- exp(x[2])
+  ABC <- exp(x[3])
+
+  F1 <- A + K_BC * ABC / (alpha * C) + ABC - A_t
+  F2 <- K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC - B_t
+  F3 <- C + K_AB * ABC / (alpha * A) + ABC - C_t
+  return(c(F1 = F1, F2 = F2, F3 = F3))
+}
+
+equilibrium_jac <- function(x, parms) {
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+  alpha <- parms[6]
+
+  A <- exp(x[1])
+  C <- exp(x[2])
+  ABC <- exp(x[3])
+
+  df_dy <- rbind(
+    c(A, -K_BC * ABC / (alpha * C), K_BC * ABC / (alpha * C) + ABC),
+    c(
+      -K_AB * K_BC * ABC / (alpha * A * C) - K_AB * ABC / (alpha * A),
+      -K_AB * K_BC * ABC / (alpha * A * C) - K_BC * ABC / (alpha * C),
+      K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC
+    ),
+    c(-K_AB * ABC / (alpha * A), C, K_AB * ABC / (alpha * A) + ABC)
+  )
+  return(df_dy)
+}
+
+noncoop_f <- function(parms) {
+  A_t <- parms[1]
+  B_t <- parms[2]
+  C_t <- parms[3]
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+
+  A <- A_t - (A_t + B_t + K_AB - sqrt((A_t + B_t + K_AB)**2 - 4 * A_t * B_t)) / 2
+  C <- C_t - (C_t + B_t + K_BC - sqrt((C_t + B_t + K_BC)**2 - 4 * C_t * B_t)) / 2
+
+  phi_AB <- A_t - A
+  phi_BC <- C_t - C
+  ABC <- ifelse(B_t == 0, 1e-19, phi_AB * phi_BC / B_t)
+  return(c(A, C, ABC))
+}
+
+wrap_solve <- function(parms) {
+  noncoop_sols <- noncoop_f(head(parms, -1))
+  init_guess <- log(noncoop_sols)
+  equilibrium_roots <- nleqslv(
+    x = init_guess,
+    fn = equilibrium_f,
+    jac = equilibrium_jac,
+    parms = parms
+  )
+  return(exp(equilibrium_roots$x[3]))
+}
+
+```
+
+```{r}
+C_t <- 1
+B_x <- c(seq(0, 1, length.out = 20), 2, 5)
+A_t <- C_t * 0.4
+K_AB <- 1.8
+K_BC <- 0.25
+alpha <- 30
+kappa <- 1
+beta <- 1
+N <- length(B_x)
+```
+
+# Scaling (A_t, C_t) by s
+```{r}
+s <- c(1, 1.5, 2, 2.5, 4)
+N_s <- length(s)
+
+ABC <- numeric(N * N_s)
+s_factor <- numeric(N * N_s)
+for (j in 1:N_s) {
+  for (i in 1:N) {
+    B_t <- B_x[i] * kappa
+    ABC[(j-1)*N + i] <- wrap_solve(c(s[j]*A_t, B_t, s[j]*C_t, K_AB, K_BC, alpha))
+    s_factor[(j-1)*N + i] <- s[j]
+  }
+}
+
+df1 <- data.frame(
+  ABC = ABC,
+  s_factor = s_factor,
+  B_x = rep(B_x, N_s)
+)
+```
+
+```{r}
+ggplot(df1, aes(x = B_x, y = ABC, color = factor(s_factor))) +
+  geom_line() +
+  scale_x_log10() +
+  labs(title = bquote(A[t] == s %.% A[t0] ~ " " ~ C[t] == s %.% C[t0]),
+       subtitle = expression("Scale " ~ A[t] ~" and "~ C[t] ~ "by constant s"),
+       x = bquote(B[t])) +
+  labs(color = "s")
+```
+
+# Scaling A_t in terms of C_t
+```{r}
+s <- c(0.2, 0.3, 0.4, 0.5)
+N_s <- length(s)
+
+ABC <- numeric(N * N_s)
+s_factor <- numeric(N * N_s)
+for (j in 1:N_s) {
+  for (i in 1:N) {
+    B_t <- B_x[i] * kappa
+    ABC[(j-1)*N + i] <- wrap_solve(c(s[j]*C_t, B_t, C_t, K_AB, K_BC, alpha))
+    s_factor[(j-1)*N + i] <- s[j]
+  }
+}
+
+df5 <- data.frame(
+  ABC = ABC,
+  s_factor = s_factor,
+  B_x = rep(B_x, N_s)
+)
+```
+
+```{r}
+ggplot(df5, aes(x = B_x, y = ABC, color = factor(s_factor))) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10() +
+  labs(title = bquote(A[t] == s %.% C[t]),
+       subtitle = expression("Scale " ~ A[t] ~" relative to "~ C[t]),
+       x = bquote(B[t])) +
+  labs(color = "s")
+```
+
+# Scaling B_x by kappa
+```{r}
+k <- c(0.5, .6, .7, .8, .9, 1)
+N_k <- length(k)
+
+ABC <- numeric(N * N_k)
+k_factor <- numeric(N * N_k)
+for (j in 1:N_k) {
+  for (i in 1:N) {
+    B_t <- B_x[i] * k[j]
+    ABC[(j-1)*N + i] <- wrap_solve(c(A_t, B_t, C_t, K_AB, K_BC, alpha))
+    k_factor[(j-1)*N + i] <- k[j]
+  }
+}
+
+df2 <- data.frame(
+  ABC = ABC,
+  k_factor = k_factor,
+  B_x = rep(B_x, N_k)
+)
+```
+
+```{r}
+ggplot(df2, aes(x = B_x, y = ABC, color = factor(k_factor))) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10() +
+  labs(title = bquote(B[t] == B[x] %.% kappa),
+       subtitle = expression("Scale " ~ B[x] ~ " by " ~ kappa),
+       x = bquote(B[x])) +
+  labs(color = bquote(kappa))
+```
+
+```{r}
+k <- c(0.2, .5, .75, 1)
+N_k <- length(k)
+
+s <- c(1, 1.5, 2, 2.5, 3, 3.5)
+N_s <- length(s)
+
+ABC <- numeric(N * N_s * N_k)
+k_factor <- numeric(N * N_s * N_k)
+s_factor <- numeric(N * N_s * N_k)
+
+for (q in 1:N_k) {
+  for (j in 1:N_s) {
+    for (i in 1:N) {
+      B_t <- B_x[i] * k[q]
+      ABC[(q-1)*N_s*N + (j-1)*N + i] <- wrap_solve(c(s[j]*A_t, B_t, s[j]*C_t, K_AB, K_BC, alpha))
+      k_factor[(q-1)*N_s*N + (j-1)*N + i] <- k[q]
+      s_factor[(q-1)*N_s*N + (j-1)*N + i] <- s[j]
+    }
+  }
+}
+
+df3 <- data.frame(
+  ABC = ABC,
+  k_factor = k_factor,
+  s_factor = s_factor,
+  B_x = rep(B_x, N_k * N_s)
+)
+```
+
+```{r}
+ggplot(df3, aes(x = B_x, y = ABC, color = factor(s_factor))) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10() +
+  facet_wrap(factor(k_factor)) +
+  labs(title = bquote(A[t] == s %.% A[t0] ~ " " ~ C[t] == s %.% C[t0]),
+       subtitle = bquote(B[t] == B[x] %.% kappa),
+       x = bquote(B[x])) +
+  labs(color = "s")
+```
+
+# Varying alpha
+```{r}
+alpha_x <- c(10, 20, 30, 40, 200)
+N_a <- length(alpha_x)
+
+ABC <- numeric(N * N_a)
+a_factor <- numeric(N * N_a)
+for (j in 1:N_a) {
+  for (i in 1:N) {
+    B_t <- B_x[i] * kappa
+    ABC[(j-1)*N + i] <- wrap_solve(c(A_t, B_t, C_t, K_AB, K_BC, alpha_x[j]))
+    a_factor[(j-1)*N + i] <- alpha_x[j]
+  }
+}
+
+df4 <- data.frame(
+  ABC = ABC,
+  a_factor = a_factor,
+  B_x = rep(B_x, N_a),
+  construct = rep(seq(1,5), each = N)
+)
+```
+
+```{r}
+ggplot(df4, aes(x = B_x, y = ABC, color = factor(a_factor))) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10() +
+  labs(title = bquote("Varying "~alpha),
+       x = bquote(B[x])) +
+  labs(color = bquote(alpha))
+```
+
+
+# TEST STAN
+
+```{r}
+fit1 <- stan(file = "test_equilibrium.stan", algorithm = "Fixed_param", 
+             data = list(N = nrow(df4),
+                         N_construct = length(unique(df4$a_factor)),
+                         K_Ds = c(K_AB, K_BC),
+                         B_x = df4$B_x,
+                         construct = df4$construct),
+             iter = 1, chains = 1)
+
+# extract(fit1)
+```
+
+
+
+
+
+
+
+
+

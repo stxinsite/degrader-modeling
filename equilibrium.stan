@@ -8,14 +8,14 @@ functions {
     real K_AB = parms[4];
     real K_BC = parms[5];
   
-    real A = A_t - (A_t + B_t + K_AB - sqrt(square(A_t + B_t + K_AB) - 4 * A_t * B_t)) / 2;
-    real C = C_t - (C_t + B_t + K_BC - sqrt(square(C_t + B_t + K_BC) - 4 * C_t * B_t)) / 2;
+    real A = A_t - ((A_t + B_t + K_AB - sqrt(square(A_t + B_t + K_AB) - 4 * A_t * B_t)) / 2);
+    real C = C_t - ((C_t + B_t + K_BC - sqrt(square(C_t + B_t + K_BC) - 4 * C_t * B_t)) / 2);
   
     real phi_AB = A_t - A;
     real phi_BC = C_t - C;
     real ABC;
     if (B_t == 0) {
-      ABC = 1e-19;
+      ABC = 0;  // verify that root-finding transformation handles 0
     } else {
       ABC = phi_AB * phi_BC / B_t;
     }
@@ -30,9 +30,10 @@ functions {
     // y: unknown variables to solve for
     // theta: parameters [A]_t, [B]_t, [C]_t, alpha
     // x_r: data K_AB, K_BC
-    // sols = exp(y): [A], [C], [ABC]
-    vector[3] sols;
+    // y_trans: f(y) = [A], [C], [ABC]
+    // initial guesses y should be close to f-inv([A], [C], [ABC])
     vector[3] z;  // the system of mass-action equations
+    vector[3] y_trans;  // transform y to constrain [A], [C], [ABC] >= 0
     real A;
     real C;
     real ABC;
@@ -43,11 +44,11 @@ functions {
     real alpha = theta[4];
     real K_AB = x_r[1];
     real K_BC = x_r[2];
-
-    sols = exp(y);  // exponential transformation of unknowns
-    A = sols[1];
-    C = sols[2];
-    ABC = sols[3];
+    
+    y_trans = square(y);  // f(y) = y^2
+    A = y_trans[1];
+    C = y_trans[2];
+    ABC = y_trans[3];
 
     z[1] = A + K_BC * ABC / (alpha * C) + ABC - A_t;
     z[2] = K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC - B_t;
@@ -67,37 +68,57 @@ data {
 
 transformed data {
   int x_i[0];  // necessary for algebra_solver() call signature
+  real<lower=0> kappa = 10;
+  real<lower=0> beta = 1;
+  real<lower=0> alpha[N_construct] = {25., 30., 25., 25., 30.};
 }
 
 parameters {
-  real<lower=0> A_t;
-  real<lower=0> C_t;
-  real<lower=0> alpha[N_construct];  // alpha_c for each construct c
-  real<lower=0, upper=1> kappa;
-  real<lower=0> beta;
-  // real<lower=0> sigma;
+  real<lower=0> C_t;  // total intracellular E3 concentration
+  // real<lower = 0.2 * C_t, upper = 0.5 * C_t> A_t;  // total intracellular target protein concentration
+  // real<lower=0> alpha[N_construct];  // alpha_c for each construct c
+  // real<lower=0, upper=1> kappa;
+  // real<lower=0> beta;
+  real<lower=0> sigma;  // error in mBU 
+}
+
+transformed parameters {
+  real A_t = 0.4 * C_t;  // for now, set A_t deterministic
+  // real<lower=0> sigma = 0.5;  // error in mBU 
 }
 
 model {
-  A_t ~ gamma(.001, .001);
-  C_t ~ gamma(.001, .001);
-  for (j in 1:N_construct) {
-    alpha[j] ~ gamma(75, 2.5);  // mean = 30, var = 12
-  }
-  kappa ~ uniform(0, 1);
-  beta ~ gamma(.001, .001);
+  C_t ~ normal(15, 5);
+  // for (j in 1:N_construct) {
+  //   alpha[j] ~ normal(30, 5);  // mean = 30, sd = 5
+  // }
+  // // kappa ~ uniform(0, 1);
+  // // beta ~ gamma(.001, .001);
+  sigma ~ gamma(.001, .001);
   
-  for (i in 1:N) {
-    real B_t = B_x[i] * kappa;
-    vector[5] parms = [A_t, B_t, C_t, K_Ds[1], K_Ds[2]]';
-    vector[3] y_init = noncoop_sols(parms);  // non-cooperative solutions as initial guesses
-    vector[3] y_initLn = log(y_init);  // log-transformation
-    vector[4] theta = [A_t, B_t, C_t, alpha[construct[i]]]';  // arguments for algebra_solver()
-    vector[3] coop_sols = exp(algebra_solver(system, y_initLn, theta, K_Ds, x_i));  // exponentiate for cooperative solutions
-    real predmBU = coop_sols[3] * beta;  // mBU = ABC * beta
-    mBU[i] ~ normal(predmBU, 0.1);  // mu = mBU, sigma = 0.1
-  }
-}
+  print(A_t);
+  print(C_t);
 
-generated quantities {
+  for (i in 1:N) {
+    real B_t;
+    vector[3] y_init;
+    vector[4] theta;
+    vector[3] solutions;
+    vector[3] coop_solutions;
+    real predmBU;
+    
+    B_t = B_x[i] * kappa;
+    print(B_t);
+    theta = [A_t, B_t, C_t, alpha[construct[i]]]';  // arguments for cooperative system root-finding
+
+    y_init = sqrt(noncoop_sols([A_t, B_t, C_t, K_Ds[1], K_Ds[2]]'));  // inverse of f(y) in system()
+    print(square(y_init));
+    
+    coop_solutions = square(algebra_solver_newton(system, y_init, theta, K_Ds, x_i)); 
+    
+    predmBU = coop_solutions[3] * beta;  // predicted mBU = ABC * beta
+    print(predmBU);
+    mBU[i] ~ normal(predmBU, sigma);
+    // mBU[i] ~ normal(predmBU, sigma);
+  }
 }

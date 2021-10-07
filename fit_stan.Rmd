@@ -129,12 +129,12 @@ transformed data {
   int x_i[0];  // necessary for algebra_solver() call signature
   real<lower=0> kappa = 1;
   real<lower=0> beta = 1;
-  real<lower=0> alpha[5] = {25., 30., 25., 25., 30.};
+  real<lower=0> alpha = 30;
 }
 
 parameters {
   real<lower=0> C_t;  // total intracellular E3 concentration
-  real<lower=0> A_t;  // total intracellular target protein concentration
+  real<lower=0.15*C_t, upper=0.55*C_t> A_t;  // total intracellular target protein concentration
   // real<lower=0> alpha[N_construct];  // alpha_c for each construct c
   // real<lower=0, upper=1> kappa;
   // real<lower=0> beta;
@@ -142,7 +142,6 @@ parameters {
 }
 
 transformed parameters {
-  // real A_t = 0.4 * C_t;  // for now, set A_t deterministic
 }
 
 model {
@@ -166,25 +165,23 @@ model {
     vector[4] theta;  
     vector[3] roots;
     vector[3] coop_solutions;
+    real predABC;
     real predmBU;
     
     B_t = B_x[i] * kappa;
-    print(B_t);
-    
-    print(construct[i]);
-    
+
     noncoop_solutions = noncoop_sols([A_t, B_t, C_t, K_Ds[1], K_Ds[2]]');
     y_init = sqrt(noncoop_solutions);
-    print(square(y_init));
-    
-    theta = [A_t, B_t, C_t, alpha[construct[i]]]';  // arguments for cooperative system root-finding
+
+    theta = [A_t, B_t, C_t, alpha]';  // arguments for cooperative system root-finding
     roots = algebra_solver_newton(system, y_init, theta, K_Ds, x_i);
     coop_solutions = square(roots); 
     print(coop_solutions);
     
-    predmBU = coop_solutions[3] * beta;  // predicted mBU = ABC * beta
+    predABC = coop_solutions[3];
+    predmBU = predABC * beta;
 
-    // mBU[i] ~ normal(predmBU, sigma);
+    mBU[i] ~ normal(predmBU, sigma);
   }
 }
 ```
@@ -218,7 +215,9 @@ inits_f <- function() {
 eq_model$check_syntax()
 
 eq_model$print()
+```
 
+```{r}
 eq_fit <- eq_model$sample(data = stan_data, 
                           seed = 0, 
                           refresh = 10, 

@@ -11,7 +11,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(nleqslv)
 library(dplyr)
 library(ggplot2)
-library(rstan)
 ```
 
 ```{r}

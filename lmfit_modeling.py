@@ -97,8 +97,9 @@ def fit_equilibrium(data, K_AB, K_BC, C_t=1., alpha=(1., 1.), kappa=0.5, beta=1.
     params.add( 'C_t', value = C_t, min = 0., max = 10.)
     params.add( 'delta', value=0.35, min = 0.2, max=0.5 )
     params.add( 'A_t', expr='delta * C_t' )
-    params.add( 'alpha_0', value = alpha[0], min = 1., max = 50.)
     params.add( 'alpha_1', value = alpha[1], min = 25., max = 35.)
+    params.add( 'gamma', value = -10, max = -5)
+    params.add( 'alpha_0', expr='alpha_1 + gamma')
     # params.add( 'kappa', value = kappa, min = 0., max = 1.)
     # params.add( 'beta', value = beta, min = 0.)
 
@@ -130,7 +131,8 @@ sorted_min[6]
 
 nanobret_subset = corrected_nanobret_df[corrected_nanobret_df['Minutes'].isin([sorted_min[5], sorted_min[6]])]
 # nanobret_subset.loc[:,'mBU_corrected'] = nanobret_subset.mBU_corrected - min(nanobret_subset.mBU_corrected)
-nanobret_subset.loc[:,'mBU_corrected'] = nanobret_subset.mBU_corrected / 20
+
+nanobret_subset.loc[:,['mBU_corrected']] = nanobret_subset.groupby('Construct')['mBU_corrected'].transform(lambda x: x - x.min()) / 200
 
 construct_dict = {
     'VHL_WT SMARCA2_L1415S': 0,
@@ -139,16 +141,58 @@ construct_dict = {
     'VHL_Y112F SMARCA2_WT': 0,
     'VHL_WT SMARCA2_WT': 1
 }
-nanobret_subset.loc[:,'construct_idx'] = [construct_dict[item] for item in nanobret_subset.Construct]
+nanobret_subset.loc[:,['construct_idx']] = [construct_dict[item] for item in nanobret_subset.Construct]
 
 data = nanobret_subset.loc[:,['uM', 'construct_idx', 'mBU_corrected']]
 
 g = sns.relplot(data=data, x='uM', y='mBU_corrected', hue='construct_idx')
 g.set(xscale = 'log')
 
+np.unique(data.uM)
+
 data_arr = data.to_numpy()
 fit = fit_equilibrium(data_arr, K_AB, K_BC, C_t = 1, alpha = (25, 30))
 
 fit.params
 
-fit.residual
+data['data_type'] = np.repeat("obs", data.shape[0])
+
+pred = fit.residual + data_arr[:,2]
+pred_data = pd.DataFrame({
+    'uM': data.uM,
+    'construct_idx': data.construct_idx,
+    'mBU_corrected': pred,
+    'data_type': np.repeat('pred', len(pred))
+    })
+
+B_t = np.repeat(np.unique(data.uM), 2)
+pred_ABC = np.empty(len(B_t))  # predicted root [ABC] that satisfies equilibrium system
+construct_idx = np.empty(len(B_t))
+p = fit.params.valuesdict()
+for i, B_i in np.ndenumerate(B_t):
+    noncoop_solutions = noncoop_equilibrium(p['A_t'], B_i, p['C_t'], K_AB, K_BC)
+    init_guess = np.log(noncoop_solutions)
+
+    if i[0] % 2 == 0:
+        construct_idx[i] = 0
+        sys_args = (p['A_t'], B_i, p['C_t'], K_AB, K_BC, p['alpha_0'])
+    elif i[0] % 2 == 1:
+        construct_idx[i] = 1
+        sys_args = (p['A_t'], B_i, p['C_t'], K_AB, K_BC, p['alpha_0'])
+
+    roots = root(equilibrium_sys, init_guess, jac=jac_equilibrium, args=sys_args)
+    pred_ABC[i] = np.exp(roots.x[2])
+
+pred_data = pd.DataFrame({
+    'uM': B_t,
+    'construct_idx': construct_idx,
+    'mBU_corrected': pred_ABC,
+    'data_type': np.repeat('pred', len(pred_ABC))
+    })
+
+fit_data = pd.concat([data, pred_data])
+
+len(np.unique(pred_data.mBU_corrected))
+
+h = sns.relplot(data=fit_data, x='uM', y='mBU_corrected', hue='construct_idx', style='data_type')
+h.set(xscale = 'log')

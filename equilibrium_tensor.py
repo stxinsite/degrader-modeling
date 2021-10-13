@@ -16,9 +16,9 @@ EQUILIBRIUM SYSTEM AND JACOBIAN OF F WRT TO [A], [C], [ABC]
 """
 def equilibrium_f(variables, A_t, B_t, C_t, K_AB, K_BC, alpha):
     """"System of equations describes concentrations at equilibrium"""
-    A = variables[0]
-    C = variables[1]
-    ABC = variables[2]
+    A = np.square(variables[0])
+    C = np.square(variables[1])
+    ABC = np.square(variables[2])
 
     F = np.empty((3))
     F[0] = A + K_BC * ABC / (alpha * C) + ABC - A_t
@@ -27,19 +27,20 @@ def equilibrium_f(variables, A_t, B_t, C_t, K_AB, K_BC, alpha):
     return F
 
 def equilibrium_jac(variables, A_t, B_t, C_t, K_AB, K_BC, alpha):
-    A = variables[0]
-    C = variables[1]
-    ABC = variables[2]
+    v1 = variables[0]
+    v2 = variables[1]
+    v3 = variables[2]
+    A = np.square(variables[0])
+    C = np.square(variables[1])
+    ABC = np.square(variables[2])
 
-    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
-    return df_dy
+    D = [ [ 2 * v1, -2 * K_BC * ABC / (alpha * v2**3), 2 * K_BC * v3 / (alpha * C) + 2 * v3 ],
+          [ -2 * K_AB * K_BC * ABC / (alpha * v1**3 * C) - 2 * K_AB * ABC / (alpha * v1**3),
+            -2 * K_AB * K_BC * ABC / (alpha * A * v2**3) - 2 * K_BC * ABC / (alpha * v2**3),
+            2 * K_AB * K_BC * v3 / (alpha * A * C) + 2 * K_BC * v3 / (alpha * C) + 2 * K_AB * v3 / (alpha * A) + 2 * v3 ],
+          [ -2 * K_AB * ABC / (alpha * v1**3), 2 * v2, 2 * K_AB * v3 / (alpha * A) + 2 * v3 ] ]
 
-def solve_dfdy(A, C, ABC, K_AB, K_BC, alpha):
-    return np.array([[ 1, -K_BC * ABC / ( alpha * C**2 ), K_BC / ( alpha * C ) + 1 ],
-                     [ -K_AB * K_BC * ABC / ( alpha * A**2 * C ) -K_AB * ABC / ( alpha * A**2 ),
-                       -K_AB * K_BC * ABC / ( alpha * A * C**2 ) -K_BC * ABC / ( alpha * C**2 ),
-                       K_AB * K_BC / ( alpha * A * C ) + K_BC / ( alpha * C ) + K_AB / ( alpha * A ) + 1 ],
-                     [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ]])
+    return D
 
 """
 ANALYTICAL SOLUTIONS FOR [A], [C], [ABC] IN NON-COOPERATIVE EQUILIBRIUM
@@ -49,29 +50,67 @@ def noncooperative_f(A_t, B_t, C_t, K_AB, K_BC):
     A = A_t - (A_t + B_t + K_AB - sqrt((A_t + B_t + K_AB)**2 - 4*A_t*B_t)) / 2
     C = C_t - (C_t + B_t + K_BC - sqrt((C_t + B_t + K_BC)**2 - 4*C_t*B_t)) / 2
 
+    A = A if A >= 0 else 0
+    C = C if C >= 0 else 0
+
     phi_AB = A_t - A
     phi_BC = C_t - C
     ABC = 0 if B_t == 0 else phi_AB * phi_BC / B_t
+
     return np.array([A, C, ABC])
 
-# noncooperative_f(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9)
-# noncooperative_f(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9)
-# noncooperative_f(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9)
-# noncooperative_f(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 0, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9)
+noncooperative_f(5e-11, 2.81, 1e-5, 5e-8, 1e-9)
+
 
 """
 SOLVE EQUILIBRIUM SYSTEM FOR [A], [C], [ABC] GIVEN THETA
 """
 def abc_from_theta(A_t, B_t, C_t, K_AB, K_BC, alpha):
-    init_guess = noncooperative_f(A_t, B_t, C_t, K_AB, K_BC)  # initial guesses for [A], [C], [ABC]
+    noncoop_sols = noncooperative_f(A_t, B_t, C_t, K_AB, K_BC)
+    init_guess = np.sqrt(noncoop_sols)  # initial guesses for [A], [C], [ABC]
     root_args = (A_t, B_t, C_t, K_AB, K_BC, alpha)
-    roots = root(equilibrium_f, init_guess, jac=equilibrium_jac, args=root_args)
-    return roots.x[2]  # returns solution for [ABC]
+    roots = root(equilibrium_f, init_guess, jac=equilibrium_jac, args=root_args, options={"maxfev": 5000})
+    assert(roots.success, "scipy.optimize.root() did not exit successfully")
+    return np.square(roots.x[2])  # returns solution for [ABC]
 
+abc_from_theta(5e-11, 0, 1e-5, 5e-8, 1e-9, 1)
 abc_from_theta(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1)
 abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 1)
 abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1)
 abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 1)
+
+abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 30)
+abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 50)
+abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 200)
+
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 30)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 50)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 200)
+
+abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 30)
+abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 50)
+abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 200)
+
+abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 30)
+abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 200)
+
+"""DERIVATIVES"""
+def solve_dfdy(A, C, ABC, K_AB, K_BC, alpha):
+    return np.array([[ 1, -K_BC * ABC / ( alpha * C**2 ), K_BC / ( alpha * C ) + 1 ],
+                     [ -K_AB * K_BC * ABC / ( alpha * A**2 * C ) -K_AB * ABC / ( alpha * A**2 ),
+                       -K_AB * K_BC * ABC / ( alpha * A * C**2 ) -K_BC * ABC / ( alpha * C**2 ),
+                       K_AB * K_BC / ( alpha * A * C ) + K_BC / ( alpha * C ) + K_AB / ( alpha * A ) + 1 ],
+                     [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ]])
 
 def solve_dABCdx(x, y, B_x):
     """solves for dy/dx"""
@@ -92,9 +131,7 @@ def solve_dABCdx(x, y, B_x):
 
     return dy_dx[2,:]
 
-"""
-EQUILIBRIUM PARAMETER FITTING MCMC
-"""
+"""NANOBRET DATA PROCESSING"""
 corrected_nanobret_df = pd.read_csv("data/corrected_nanobret_df.csv")
 sorted_min = sorted(corrected_nanobret_df['Minutes'].unique().tolist())
 nanobret_subset = corrected_nanobret_df[corrected_nanobret_df['Minutes'].isin([sorted_min[5], sorted_min[6]])]
@@ -114,55 +151,66 @@ nanobret_subset = nanobret_subset.loc[:,['uM', 'mBU_corrected', 'Construct']]
 nanobret_subset.shape
 nanobret_subset.head()
 
-class ABCFromTheta(tt.Op):
-    itypes = [tt.dscalar, tt.dscalar, tt.dscalar, tt.dscalar, tt.dscalar, tt.dscalar]
-    otypes = [tt.dscalar]
+"""CUSTOM THEANO OP"""
+
+class ABCFromTheta(theano.Op):
+    itypes = [tt.dscalar, tt.dscalar, tt.dvector]
+    otypes = [tt.dvector]
+
+    def __init__(self, B_t, construct_idx, K_AB, K_BC):
+        self.B_t = B_t
+        self.construct_idx = construct_idx
+        self.K_AB = K_AB
+        self.K_BC = K_BC
 
     def perform(self, node, inputs, outputs):
         A_t = inputs[0]
-        B_t = inputs[1]
-        C_t = inputs[2]
-        K_AB = inputs[3]
-        K_BC = inputs[4]
-        alpha = inputs[5]
-        ABC = abc_from_theta(A_t, B_t, C_t, K_AB, K_BC, alpha)
+        C_t = inputs[1]
+        alpha = inputs[2]
+
+        B_t = self.B_t.get_value()
+        construct_idx = self.construct_idx.get_value()
+        N = len(B_t)
+        ABC = np.empty(N)
+        for i in range(N):
+            c = construct_idx[i]
+            ABC[i] = abc_from_theta(A_t, B_t[i], C_t, self.K_AB.get_value(), self.K_BC.get_value(), alpha[c])
 
         z = outputs[0]
         z[0] = ABC
 
+    def grad(self, inputs, g):
+        pass
 
-A_t = tt.dscalar('A_t')
-B_t = tt.dscalar('B_t')
-C_t = tt.dscalar('C_t')
-K_AB = tt.dscalar('K_AB')
-K_BC = tt.dscalar('K_BC')
-alpha = tt.dscalar('alpha')
-z = ABCFromTheta(A_t, B_t, C_t, K_AB, K_BC, alpha)
-f = theano.function([x, y], z)
-    # def grad(self, inputs, g):
-    #     pass
-
+"""TESTING CUSTOM THEANO OP"""
 theano.config.compute_test_value = "ignore"
+A_t = tt.dscalar('A_t')
+C_t = tt.dscalar('C_t')
+alpha = tt.dvector('alpha')
 
-A_t = tt.scalar('A_t')
-C_t = tt.scalar('C_t')
-K_AB = tt.scalar('K_AB')
-K_BC = tt.scalar('K_BC')
-B_t = tt.vector('B_t')
+B_t = theano.shared(np.array([0, 7.5e-2, 1.2e-7, 9.18e-9, 6.24e-15, 2.81, 9.18e-9, 9.18e-9, 9.18e-9, 9.18e-9]))
+construct_idx = theano.shared(np.array([0, 0, 0, 0, 0, 0, 0, 1, 2, 3], dtype=np.int64))
+K_AB = theano.shared(5e-8)
+K_BC = theano.shared(1e-9)
 
-A = A_t - (A_t + B_t + K_AB - tt.sqrt((A_t + B_t + K_AB)**2 - 4*A_t*B_t)) / 2
-C = C_t - (C_t + B_t + K_BC - tt.sqrt((C_t + B_t + K_BC)**2 - 4*C_t*B_t)) / 2
-phi_AB = A_t - A
-phi_BC = C_t - C
-ABC = tt.switch(tt.eq(B_t, 0), 0, phi_AB * phi_BC / B_t)
+ABC_Op = ABCFromTheta(B_t, construct_idx, K_AB, K_BC)
 
-noncoop_f = theano.function([A_t, C_t, K_AB, K_BC, B_t], [A, C, ABC])
+f = theano.function([A_t, C_t, alpha], ABC_Op(A_t, C_t, alpha))
 
-noncoop_sols = noncoop_f(5e-11, 1e-5, 1.8e-6, 2.5e-7, [1.12e-6, 8e-6, 2.45e-05])
-noncoop_sols
-noncoop_sols
+f(5e-11, 1e-5, np.array([1, 30, 50, 200]))
 
+abc_from_theta(5e-11, 0, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 1.2e-7, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 30)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 50)
+abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 200)
 
+"""EQUILIBRIUM PARAMETER FITTING MCMC"""
 K_AB = 1.8e-6
 K_BC = 2.5e-7
 B_t = np.array([1.12e-6, 2.45e-05])
@@ -172,19 +220,6 @@ with pm.Model() as model:
     alpha = pm.Gamma('alpha', mu=30, sigma=3, shape=5)  # vector of length 5: prior mean = 30
     kappa = pm.Uniform('kappa', lower=0, upper=1)
     beta = pm.Gamma('beta', alpha=0.001, beta=0.001)  # weak prior for beta
-
-    A = A_t - (A_t + B_t + K_AB - tt.sqrt((A_t + B_t + K_AB)**2 - 4*A_t*B_t)) / 2
-    C = C_t - (C_t + B_t + K_BC - tt.sqrt((C_t + B_t + K_BC)**2 - 4*C_t*B_t)) / 2
-    phi_AB = A_t - A
-    phi_BC = C_t - C
-    ABC = tt.switch(tt.eq(B_t, 0), 0, phi_AB * phi_BC / B_t)
-
-
-
-A_t = 5e-11
-C_t = 1e-5
-B_t = 1.12e-6
-B_t = 2.45e-05
 
 """
 EXAMPLE

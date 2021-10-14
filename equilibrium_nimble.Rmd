@@ -298,8 +298,23 @@ samples_n3 <- readRDS(file = "data/nimble_fit_full_fix_WT_alpha.rds")
 # lapply(samples_n3, samplesSummary)
 
 samples_all <- do.call(rbind, samples_n3)
-samplesSummary(samples_all)
+ss_all <- samplesSummary(samples_all)
 
+tab <- round(
+  ss_all[ , c("Mean", "Median", "95%CI_low", "95%CI_upp")],
+  digits = 3
+)
+
+rownames(tab) <- c("[A]$_t$", "[C]$_t$", 
+                   "$\\alpha_1$", "$\\alpha_2$", "$\\alpha_3$", "$\\alpha_4$", "$\\alpha_5$",
+                   "$\\beta$", "$\\kappa$", "$\\sigma$"
+                   )
+
+knitr::kable(tab, caption = "Mean, Median and 95% Bayesian Credible Intervals of Model Parameters") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+```
+
+```{r}
 # effectiveSize(samples)
 lapply(samples_n3, effectiveSize)
 ```

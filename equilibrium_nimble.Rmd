@@ -1,0 +1,385 @@
+---
+title: "Modeling Ternary Complex Equilibrium with NIMBLE"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(nleqslv)
+
+library(nimble)
+library(basicMCMCplots)
+library(coda)
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(sf)
+
+library(patchwork)
+library(ggmcmc)
+
+library(fastDummies)
+library(gplots)
+
+library(kableExtra)
+```
+
+```{r}
+equilibrium_f <- function(x, parms) {
+  A_t <- parms[1]
+  B_t <- parms[2]
+  C_t <- parms[3]
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+  alpha <- parms[6]
+
+  A <- x[1]^2
+  C <- x[2]^2
+  ABC <- x[3]^2
+
+  F1 <- A + K_BC * ABC / (alpha * C) + ABC - A_t
+  F2 <- K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC - B_t
+  F3 <- C + K_AB * ABC / (alpha * A) + ABC - C_t
+  return(c(F1 = F1, F2 = F2, F3 = F3))
+}
+
+equilibrium_jac <- function(x, parms) {
+  v1 = x[1]
+  v2 = x[2]
+  v3 = x[3]
+  
+  A = x[1]^2
+  C = x[2]^2
+  ABC = x[3]^2
+  
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+  alpha <- parms[6]
+
+  D = rbind( 
+    c(2 * v1, -2 * K_BC * ABC / (alpha * v2^3), 2 * K_BC * v3 / (alpha * C) + 2 * v3),
+    c(-2 * K_AB * K_BC * ABC / (alpha * v1^3 * C) - 2 * K_AB * ABC / (alpha * v1^3),
+      -2 * K_AB * K_BC * ABC / (alpha * A * v2^3) - 2 * K_BC * ABC / (alpha * v2^3),
+      2 * K_AB * K_BC * v3 / (alpha * A * C) + 2 * K_BC * v3 / (alpha * C) + 2 * K_AB * v3 / (alpha * A) + 2 * v3),
+    c(-2 * K_AB * ABC / (alpha * v1^3), 2 * v2, 2 * K_AB * v3 / (alpha * A) + 2 * v3) )
+
+  return(D)
+}
+
+noncoop_f <- function(parms) {
+  A_t <- parms[1]
+  B_t <- parms[2]
+  C_t <- parms[3]
+  K_AB <- parms[4]
+  K_BC <- parms[5]
+
+  A <- A_t - (A_t + B_t + K_AB - sqrt((A_t + B_t + K_AB)**2 - 4 * A_t * B_t)) / 2
+  C <- C_t - (C_t + B_t + K_BC - sqrt((C_t + B_t + K_BC)**2 - 4 * C_t * B_t)) / 2
+  
+  A <- ifelse(A < 0, 1e-19, A)
+  C <- ifelse(C < 0, 1e-19, C)
+
+  phi_AB <- A_t - A
+  phi_BC <- C_t - C
+  ABC <- ifelse(B_t == 0, 0, phi_AB * phi_BC / B_t)
+  return(c(A, C, ABC))
+}
+
+```
+
+# TESTING ROOT-FINDING 
+```{r}
+test_roots <- function(parms) {
+  noncoop_sols <- noncoop_f(head(parms, -1))
+  init_guess <- sqrt(noncoop_sols)
+  equilibrium_roots <- nleqslv(
+    x = init_guess,
+    fn = equilibrium_f,
+    jac = equilibrium_jac,
+    parms = parms,
+    control = list(maxit = 5000)
+  )
+  coop_sols <- equilibrium_roots$x^2
+  print(noncoop_sols)
+  print(coop_sols)
+  print(equilibrium_roots$fvec)
+}
+
+# UNIT TEST
+test_roots(c(5e-11, 0, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 1.2e-2, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 5, 1e-5, 5e-8, 1e-9, 1))
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 1))
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 30))
+# as alpha gets larger, ABC increases and reduces A more than C
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 50))
+```
+
+# NIMBLE FUNCTIONS
+```{r}
+wrap_solve <- function(parms) {
+  noncoop_sols <- noncoop_f(head(parms, -1))
+  init_guess <- sqrt(noncoop_sols)
+  equilibrium_roots <- nleqslv(
+    x = init_guess,
+    fn = equilibrium_f,
+    jac = equilibrium_jac,
+    parms = parms,
+    control = list(maxit = 5000)
+  )
+  coop_sols <- equilibrium_roots$x^2
+
+  return(coop_sols[3])
+}
+
+nimble_solve <- nimbleRcall(
+  prototype = function(parms = double(1)) {},
+  returnType = double(0),
+  Rfun = "wrap_solve"
+)
+```
+
+```{r}
+testModelCode <- nimbleCode({
+    ABC[1] <- nimble_solve(x[1:6])
+})
+
+testModel <- nimbleModel(testModelCode, check = FALSE, calculate = FALSE)
+
+ctestModel <- compileNimble(testModel)
+
+## Let's see if it works:
+ctestModel$x <- c(5e-11, 2.81, 1e-5, 1.8e-6, 2.5e-7, 50)
+
+## Answer directly:
+wrap_solve(ctestModel$x)
+## Answer via the nimble model:
+ctestModel$calculate('ABC[1]')
+ctestModel$ABC  #This result should match the answer calculated directly from nearPD.
+```
+
+# NANOBRET DATA
+```{r}
+nanobret_csv <- read.csv("data/corrected_nanobret_df.csv")
+
+sorted_min <- sort(unique(nanobret_csv$Minutes))
+
+# subtract min mBU within Construct group
+nanobret_96 <- nanobret_csv %>% 
+  filter(Minutes %in% sorted_min[6:7]) %>%
+  group_by(Construct) %>%
+  mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)) )
+
+ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = Construct)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10()
+
+nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
+  "VHL_WT SMARCA2_L1415S" = 1,
+  "VHL_WT SMARCA2_E1420S" = 2,
+  "VHL_R69Q SMARCA2_WT" = 3,
+  "VHL_Y112F SMARCA2_WT" = 4,
+  "VHL_WT SMARCA2_WT" = 5
+))
+
+ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = as.factor(construct_int))) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10() +
+  guides(color = guide_legend(title = bquote(alpha[i])))
+
+```
+
+# NANOBRET NIMBLE MODEL
+```{r}
+# nimble code
+code <- nimbleCode({
+  A_t ~ dexp(1)
+  C_t ~ dexp(1)
+  constraint ~ dconstraint(0.2*C_t <= A_t & A_t <= 0.5*C_t)
+  beta ~ dnorm(0, sd=10)
+  kappa ~ dunif(0, 1)
+  sigma ~ dexp(10)
+  for (i in 1:N_constructs) {
+    alpha[i] ~ dlnorm(3, sdlog = 0.5)
+  }
+  alpha[5] <- WT_alpha
+
+  for (i in 1:N) {
+    B_t[i] <- B_x[i] * kappa
+    c[i] <- construct_int[i]
+      ABC[i] <- nimble_solve(c(A_t, B_t[i], C_t, K_AB, K_BC, alpha[c[i]]))
+    mu[i] <- ABC[i] * exp(beta)
+    y[i] ~ dnorm(mean = mu[i], sd = sigma)
+  }
+})
+
+# list of fixed constants
+# units in uM
+constants <- list(
+  N = nrow(nanobret_96),
+  N_constructs = length(unique(nanobret_96$construct_int)) - 1,
+  B_x = nanobret_96$uM,
+  construct_int = nanobret_96$construct_int,
+  K_AB = 9.26,  # PROTAC to target
+  K_BC = 0.0694,  # PROTAC to E3
+  WT_alpha = 26
+)
+
+# list specifying model data
+data <- list(
+  y = nanobret_96$mBU_corrected,
+  constraint = 1
+)
+
+# list specifying initial values
+# VERIFY UNIFORMITY OF MEASUREMENT UNITS
+inits_f <- function() {
+  C_t <- runif(n = 1, min = 0, max = 5)
+  
+  list(
+    C_t = C_t,
+    A_t = 0.35*C_t,
+    beta = rnorm(n = 1, mean = 0, sd = 1),
+    kappa = runif(n = 1, min = 0.5, max = 1),
+    alpha = rnorm(n = 4, mean = 20, sd = 5),
+    sigma = rexp(n = 1, rate = 10)
+  )
+}
+```
+
+```{r}
+# build the R model object
+Rmodel <- nimbleModel(
+  code = code,
+  constants = constants,
+  data = data,
+  inits = list(A_t = 0.35, C_t = 1, beta = 1, kappa = 0.9, alpha = c(20, 25, 20, 20, 25), sigma = 0.1)
+)
+Rmodel$calculate()
+```
+
+# MCMC configuration and building
+```{r}
+conf <- configureMCMC(Rmodel)
+
+Rmcmc <- buildMCMC(conf)
+```
+# compile to C++, and run
+```{r}
+Cmodel <- compileNimble(Rmodel)
+Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
+```
+# run multiple MCMC chains
+```{r}
+# samples <- runMCMC(Cmcmc, niter = 20000, nburnin = 1000, thin = 2, samplesAsCodaMCMC = TRUE)
+samples_n3 <- runMCMC(Cmcmc, nchains = 4, 
+                      niter = 10000, nburnin = 1000, thin = 2, 
+                      inits = inits_f, summary = TRUE, samplesAsCodaMCMC = TRUE)
+```
+
+
+```{r}
+saveRDS(samples_n3, file = "data/nimble_fit_full_fix_WT_alpha.rds")
+samples_n3 <- readRDS(file = "data/nimble_fit_full_fix_WT_alpha.rds")
+```
+
+
+```{r}
+# samplesSummary(samples)
+# lapply(samples_n3, samplesSummary)
+
+samples_all <- do.call(rbind, samples_n3)
+samplesSummary(samples_all)
+
+# effectiveSize(samples)
+lapply(samples_n3, effectiveSize)
+```
+
+```{r}
+samplesPlot(samples_n3, var = "alpha")
+```
+```{r}
+samplesPlot(samples_n3, var = c('A_t', 'C_t'))
+```
+
+```{r}
+samplesPlot(samples_n3, var = c('kappa', 'sigma'))
+```
+
+```{r}
+samplesPlot(samples_n3, var = 'beta')
+```
+
+```{r}
+GR.diag <- gelman.diag(samples_n3, multivariate = FALSE)
+GR.diag
+GR.diag$mpsrf
+```
+
+```{r}
+ggs.nanobret <- ggs(samples_n3)
+
+ggs.nanobret %>% 
+  ggs_traceplot(family = "alpha", greek = TRUE) +
+  theme_bw()
+```
+
+```{r}
+ggs.nanobret %>% 
+  filter(Parameter %in% c("kappa", "sigma")) %>%
+  ggs_traceplot(greek = TRUE) +
+  theme_bw()
+```
+
+```{r}
+ggs.nanobret %>% 
+  filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  ggs_traceplot(greek = TRUE, ) +
+  theme_bw()
+```
+
+```{r}
+ggs.nanobret %>%
+  ggs_running(family = "alpha", greek = TRUE) + 
+  theme_bw()
+```
+
+```{r}
+chainsSummary(samples_n3, var = c("alpha[1]", "alpha[2]", "alpha[3]", "alpha[4]"))
+```
+
+
+## Plot predicted ABC
+```{r}
+nanobret_96_1 <- nanobret_96 %>% filter(construct_int == 1)
+unique(nanobret_96_1$Construct)
+
+samplesSum <- samplesSummary(samples)
+mBU_pred <- numeric(length = nrow(nanobret_96_1))
+for (i in 1:nrow(nanobret_96_1)) {
+  parms <- c(.051, nanobret_96_1$uM[i],
+             .1611, 1.8, .25, 26.9)
+  ABC <- wrap_solve(parms = parms)
+  mBU_pred[i] <- ABC * samplesSum['beta','Mean']
+}
+
+nanobret_96_1$mBU_pred <- mBU_pred
+
+df <- data.frame(uM = rep(nanobret_96_1$uM, 2),
+                 mBU = c(nanobret_96_1$mBU_corrected, nanobret_96_1$mBU_pred),
+                 type = c(rep("observed", nrow(nanobret_96_1)), rep("predicted", nrow(nanobret_96_1)))
+               )
+ggplot(df, aes(x = uM, y = mBU, color = type)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10()
+```

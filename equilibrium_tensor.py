@@ -70,12 +70,14 @@ noncooperative_f(5e-11, 2.81, 1e-5, 5e-8, 1e-9)
 """
 SOLVE EQUILIBRIUM SYSTEM FOR [A], [C], [ABC] GIVEN THETA
 """
-def abc_from_theta(A_t, B_t, C_t, K_AB, K_BC, alpha):
+def abc_from_theta(A_t, B_t, C_t, K_AB, K_BC, alpha, return_all=False):
     noncoop_sols = noncooperative_f(A_t, B_t, C_t, K_AB, K_BC)
     init_guess = np.sqrt(noncoop_sols)  # initial guesses for [A], [C], [ABC]
     root_args = (A_t, B_t, C_t, K_AB, K_BC, alpha)
     roots = root(equilibrium_f, init_guess, jac=equilibrium_jac, args=root_args, options={"maxfev": 5000})
     assert(roots.success, "scipy.optimize.root() did not exit successfully")
+    if return_all:
+        return np.square(roots.x)  # returns solutions for [A], [C], [ABC]
     return np.square(roots.x[2])  # returns solution for [ABC]
 
 abc_from_theta(5e-11, 0, 1e-5, 5e-8, 1e-9, 1)
@@ -105,31 +107,29 @@ abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 30)
 abc_from_theta(5e-11, 2.81, 1e-5, 5e-8, 1e-9, 200)
 
 """DERIVATIVES"""
-def solve_dfdy(A, C, ABC, K_AB, K_BC, alpha):
-    return np.array([[ 1, -K_BC * ABC / ( alpha * C**2 ), K_BC / ( alpha * C ) + 1 ],
-                     [ -K_AB * K_BC * ABC / ( alpha * A**2 * C ) -K_AB * ABC / ( alpha * A**2 ),
-                       -K_AB * K_BC * ABC / ( alpha * A * C**2 ) -K_BC * ABC / ( alpha * C**2 ),
-                       K_AB * K_BC / ( alpha * A * C ) + K_BC / ( alpha * C ) + K_AB / ( alpha * A ) + 1 ],
-                     [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ]])
-
-def solve_dABCdx(x, y, B_x):
+def solve_dABC_dx(A, C, ABC, K_AB, K_BC, alpha):
     """solves for dy/dx"""
-    A_t, C_t, alpha, kappa = x
-    A, C, ABC = y
+    # partial derivatives of F with respect to [A], [C], [ABC]
+    df_dy = np.array( [ [ 1, -K_BC * ABC / ( alpha * C**2 ), K_BC / ( alpha * C ) + 1 ],
+                        [ -K_AB * K_BC * ABC / ( alpha * A**2 * C ) -K_AB * ABC / ( alpha * A**2 ),
+                          -K_AB * K_BC * ABC / ( alpha * A * C**2 ) -K_BC * ABC / ( alpha * C**2 ),
+                          K_AB * K_BC / ( alpha * A * C ) + K_BC / ( alpha * C ) + K_AB / ( alpha * A ) + 1 ],
+                        [ -K_AB * ABC / ( alpha * A**2 ), 1, K_AB / ( alpha * A ) + 1 ] ] )
 
-    df_dy = solve_dfdy(A, C, ABC, K_AB, K_BC, alpha)
-    neg_df_dx = np.array([[ 1, 0, K_BC * ABC / ( alpha**2 * C ), 0 ],
-                          [ 0, 0, K_AB * K_BC *ABC / ( alpha**2 * A * C ) +K_AB * ABC / ( alpha**2 * A ) +K_BC * ABC / ( alpha**2 * C ), B_x ],
-                          [ 0, 1, K_AB * ABC / ( alpha**2 * A ), 0 ]])
+    # partial derivatives of F with respect to [A]_t, [C]_t, alpha
+    df_dx = np.array( [ [ -1, 0, -K_BC * ABC / ( alpha**2 * C ) ],
+                        [ 0, 0, -K_AB * K_BC *ABC / ( alpha**2 * A * C ) - K_AB * ABC / ( alpha**2 * A ) - K_BC * ABC / ( alpha**2 * C ) ],
+                        [ 0, -1, -K_AB * ABC / ( alpha**2 * A ) ] ] )
 
+    # partial derivatives of [A], [C], [ABC] with respect to [A]_t, [C]_t, alpha
     try:
-        dy_dx = solve(df_dy, neg_df_dx)  # [ d[ABC]/dx ] is the third row
+        dy_dx = solve(df_dy, np.negative(df_dx))
     except LinAlgWarning:
-        dy_dx = np.empty(len(x))
+        dy_dx = np.empty(len(df_dx.shape[1]))
         dy_dx[:] = np.NaN
         return dy_dx
 
-    return dy_dx[2,:]
+    return dy_dx[2,:]  # [ d[ABC]/dx ] is the third row
 
 """NANOBRET DATA PROCESSING"""
 corrected_nanobret_df = pd.read_csv("data/corrected_nanobret_df.csv")
@@ -180,7 +180,29 @@ class ABCFromTheta(theano.Op):
         z[0] = ABC
 
     def grad(self, inputs, g):
-        pass
+        A_t = inputs[0]
+        C_t = inputs[1]
+        alpha = inputs[2]
+
+        B_t = self.B_t.get_value()
+        construct_idx = self.construct_idx.get_value()
+        N = len(B_t)
+        dABC_dAt = np.empty(N)
+        dABC_dCt = np.empty(N)
+        dABC_dalpha = np.empty(len(np.unique(construct_idx)))
+        for i in range(N):
+            c = construct_idx[i]
+            A_C_ABC = abc_from_theta(A_t, B_t[i], C_t, self.K_AB.get_value(), self.K_BC.get_value(), alpha[c], return_all=True)
+            dABC_dx = solve_dABC_dx(A_C_ABC[0], A_C_ABC[1], A_C_ABC[2], self.K_AB.get_value(), self.K_BC.get_value(), alpha[c])
+            dABC_dAt[i] = dABC_dx[0]
+            dABC_dCt[i] = dABC_dx[1]
+            dABC_dalpha[c] += dABC_dx[2]
+
+        dABC_dAt_total = (dABC_dAt * g[0]).sum()
+        dABC_dCt_total = (dABC_dCt * g[1]).sum()
+        dABC_dalpha_total = dABC_dalpha * g[2]
+
+        return [dABC_dAt_total, dABC_dCt_total, dABC_dalpha_total]
 
 """TESTING CUSTOM THEANO OP"""
 theano.config.compute_test_value = "ignore"
@@ -209,6 +231,11 @@ abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1)
 abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 30)
 abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 50)
 abc_from_theta(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 200)
+
+theano.tests.unittest_tools.verify_grad(ABCFromTheta(B_t, construct_idx, K_AB, K_BC), [np.array(5e-11), np.array(1e-5), np.array([1., 30., 50., 200.])])
+theano.tests.unittest_tools.verify_grad(MuFromTheta(), [np.array(1e-5)])
+theano.tests.unittest_tools.verify_grad(MuFromTheta(), [np.array(1e5)])
+
 
 """EQUILIBRIUM PARAMETER FITTING MCMC"""
 K_AB = 1.8e-6

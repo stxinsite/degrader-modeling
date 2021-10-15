@@ -9,23 +9,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(nleqslv)
-
 library(nimble)
 library(basicMCMCplots)
 library(coda)
-
+library(plyr)
 library(dplyr)
-library(tidyverse)
 library(ggplot2)
-library(sf)
-
-library(patchwork)
 library(ggmcmc)
-
-library(fastDummies)
-library(gplots)
-
 library(kableExtra)
+library(GGally)
 ```
 
 ```{r}
@@ -162,7 +154,7 @@ ctestModel$x <- c(5e-11, 2.81, 1e-5, 1.8e-6, 2.5e-7, 50)
 wrap_solve(ctestModel$x)
 ## Answer via the nimble model:
 ctestModel$calculate('ABC[1]')
-ctestModel$ABC  #This result should match the answer calculated directly from nearPD.
+ctestModel$ABC  # This result should match the answer calculated directly
 ```
 
 # NANOBRET DATA
@@ -194,7 +186,8 @@ ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = as.factor(construct_i
   geom_point() +
   geom_line() +
   scale_x_log10() +
-  guides(color = guide_legend(title = bquote(alpha[i])))
+  guides(color = guide_legend(title = bquote(alpha[i]))) + 
+  scale_color_hue(labels = c("L1415s", "E1420S", "R69Q", "Y112F", "WT"))
 
 ```
 
@@ -224,6 +217,12 @@ code <- nimbleCode({
 
 # list of fixed constants
 # units in uM
+# N: number of rows
+# N_constructs: number of constructs
+# B_x: extracellular degrader concentration
+# construct_int: a vector containing integer index corresponding to alpha[i]
+# K_AB, K_BC: binary constants of dissociation
+# WT_alpha: cooperativity of wild type species
 constants <- list(
   N = nrow(nanobret_96),
   N_constructs = length(unique(nanobret_96$construct_int)) - 1,
@@ -235,6 +234,7 @@ constants <- list(
 )
 
 # list specifying model data
+# y: ternary complex concentration multiplied by scaling factor
 data <- list(
   y = nanobret_96$mBU_corrected,
   constraint = 1
@@ -288,8 +288,8 @@ samples_n3 <- runMCMC(Cmcmc, nchains = 4,
 
 
 ```{r}
-saveRDS(samples_n3, file = "data/nimble_fit_full_fix_WT_alpha.rds")
-samples_n3 <- readRDS(file = "data/nimble_fit_full_fix_WT_alpha.rds")
+# saveRDS(samples_n3, file = "data/nimble_fit_full_fix_WT_alpha.rds")
+samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 ```
 
 
@@ -306,7 +306,7 @@ tab <- round(
 )
 
 rownames(tab) <- c("[A]$_t$", "[C]$_t$", 
-                   "$\\alpha_1$", "$\\alpha_2$", "$\\alpha_3$", "$\\alpha_4$", "$\\alpha_5$",
+                   "$\\alpha_{L1415S}$", "$\\alpha_{E1420S}$", "$\\alpha_{R69Q}$", "$\\alpha_{Y112F}$", "$\\alpha_{WT}$",
                    "$\\beta$", "$\\kappa$", "$\\sigma$"
                    )
 
@@ -322,6 +322,7 @@ lapply(samples_n3, effectiveSize)
 ```{r}
 samplesPlot(samples_n3, var = "alpha")
 ```
+
 ```{r}
 samplesPlot(samples_n3, var = c('A_t', 'C_t'))
 ```
@@ -343,8 +344,21 @@ GR.diag$mpsrf
 ```{r}
 ggs.nanobret <- ggs(samples_n3)
 
+ggs.nanobret$Parameter <- plyr::revalue(ggs.nanobret$Parameter, 
+                                        c("alpha[1]" = "alpha[L1415S]",
+                                          "alpha[2]" = "alpha[E1420S]",
+                                          "alpha[3]" = "alpha[R69Q]",
+                                          "alpha[4]" = "alpha[Y112F]",
+                                          "alpha[5]" = "alpha[WT]"))
+  
 ggs.nanobret %>% 
-  ggs_traceplot(family = "alpha", greek = TRUE) +
+  filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
+  ggs_traceplot(greek = TRUE) +
+  theme_bw()
+
+ggs.nanobret %>%
+  filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
+  ggs_density(greek = T) +
   theme_bw()
 ```
 
@@ -353,6 +367,11 @@ ggs.nanobret %>%
   filter(Parameter %in% c("kappa", "sigma")) %>%
   ggs_traceplot(greek = TRUE) +
   theme_bw()
+
+ggs.nanobret %>%
+  filter(Parameter %in% c("kappa", "sigma")) %>%
+  ggs_density(greek = T) +
+  theme_bw()
 ```
 
 ```{r}
@@ -360,13 +379,35 @@ ggs.nanobret %>%
   filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
   ggs_traceplot(greek = TRUE, ) +
   theme_bw()
+
+ggs.nanobret %>% 
+  filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  ggs_density(greek = TRUE, ) +
+  theme_bw()
 ```
 
 ```{r}
 ggs.nanobret %>%
-  ggs_running(family = "alpha", greek = TRUE) + 
+  filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
+  ggs_running(greek = TRUE) + 
+  theme_bw()
+
+ggs.nanobret %>%
+  filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
+  ggs_caterpillar(greek = TRUE) + 
+  theme_bw() +
+  labs(title = "Highest Posterior Density Intervals",
+       subtitle = "Thick lines: 90%, Thin lines: 95%")
+```
+
+```{r}
+ggs.nanobret %>%
+  filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  ggs_pairs(mapping = aes(color = Chain),
+            lower = list(continuous = wrap("points", alpha = 0.01))) +
   theme_bw()
 ```
+
 
 ```{r}
 chainsSummary(samples_n3, var = c("alpha[1]", "alpha[2]", "alpha[3]", "alpha[4]"))

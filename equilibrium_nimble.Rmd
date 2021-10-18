@@ -21,7 +21,14 @@ library(GGally)
 ```
 
 ```{r}
+# system of equations describing concentrations at equilibrium 
+# A: target protein
+# B: degrader
+# C: E3 ligase
+# K_AB, K_BC: equilibrium dissociation constants of binary complexes
+# alpha: cooperativity
 equilibrium_f <- function(x, parms) {
+  # unpack system parameters
   A_t <- parms[1]
   B_t <- parms[2]
   C_t <- parms[3]
@@ -29,29 +36,37 @@ equilibrium_f <- function(x, parms) {
   K_BC <- parms[5]
   alpha <- parms[6]
 
+  # unknowns are square transformations of the variables 
   A <- x[1]^2
   C <- x[2]^2
   ABC <- x[3]^2
 
+  # analytical expressions relating parameters to unknowns
   F1 <- A + K_BC * ABC / (alpha * C) + ABC - A_t
   F2 <- K_AB * K_BC * ABC / (alpha * A * C) + K_BC * ABC / (alpha * C) + K_AB * ABC / (alpha * A) + ABC - B_t
   F3 <- C + K_AB * ABC / (alpha * A) + ABC - C_t
   return(c(F1 = F1, F2 = F2, F3 = F3))
 }
 
+# jacobian of system of equations
+# the call signature and arguments are identical to equilibrium_f()
 equilibrium_jac <- function(x, parms) {
+  # unpack variables
   v1 = x[1]
   v2 = x[2]
   v3 = x[3]
   
+  # unknowns are square transformations of the variables
   A = x[1]^2
   C = x[2]^2
   ABC = x[3]^2
   
+  # unpack parameters
   K_AB <- parms[4]
   K_BC <- parms[5]
   alpha <- parms[6]
 
+  # D_{ij} contains partial derivative of F[i] with respect to x[j]
   D = rbind( 
     c(2 * v1, -2 * K_BC * ABC / (alpha * v2^3), 2 * K_BC * v3 / (alpha * C) + 2 * v3),
     c(-2 * K_AB * K_BC * ABC / (alpha * v1^3 * C) - 2 * K_AB * ABC / (alpha * v1^3),
@@ -62,7 +77,10 @@ equilibrium_jac <- function(x, parms) {
   return(D)
 }
 
+# analytical solution for unknowns when cooperativity equals 1
+# result will be used as initial guess for solving equilibrium_f()
 noncoop_f <- function(parms) {
+  # unpack parameters
   A_t <- parms[1]
   B_t <- parms[2]
   C_t <- parms[3]
@@ -72,6 +90,9 @@ noncoop_f <- function(parms) {
   A <- A_t - (A_t + B_t + K_AB - sqrt((A_t + B_t + K_AB)**2 - 4 * A_t * B_t)) / 2
   C <- C_t - (C_t + B_t + K_BC - sqrt((C_t + B_t + K_BC)**2 - 4 * C_t * B_t)) / 2
   
+  # for B_t >> A_t, expressions for A, C can be negative
+  # replace negative values with small positive epsilon 
+  # cannot be set to 0 because A, C appear in denominators in equilibrium_f()
   A <- ifelse(A < 0, 1e-19, A)
   C <- ifelse(C < 0, 1e-19, C)
 
@@ -85,9 +106,11 @@ noncoop_f <- function(parms) {
 
 # TESTING ROOT-FINDING 
 ```{r}
+# prints non-cooperative solutions and results of cooperative system root-finding
 test_roots <- function(parms) {
+  # parms = c(A_t, B_t, C_t, K_AB, K_BC, alpha)
   noncoop_sols <- noncoop_f(head(parms, -1))
-  init_guess <- sqrt(noncoop_sols)
+  init_guess <- sqrt(noncoop_sols)  # square-root transform non-cooperative solutions
   equilibrium_roots <- nleqslv(
     x = init_guess,
     fn = equilibrium_f,
@@ -95,13 +118,15 @@ test_roots <- function(parms) {
     parms = parms,
     control = list(maxit = 5000)
   )
-  coop_sols <- equilibrium_roots$x^2
+  coop_sols <- equilibrium_roots$x^2  # square transform roots to concentration units
   print(noncoop_sols)
   print(coop_sols)
-  print(equilibrium_roots$fvec)
+  print(equilibrium_roots$fvec)  # the value of system F at roots
 }
 
 # UNIT TEST
+# set alpha to 1
+# verify with Douglass et al. Supplementary Excel 
 test_roots(c(5e-11, 0, 1e-5, 5e-8, 1e-9, 1))
 test_roots(c(5e-11, 7.5e-2, 1e-5, 5e-8, 1e-9, 1))
 test_roots(c(5e-11, 1.2e-2, 1e-5, 5e-8, 1e-9, 1))
@@ -109,16 +134,19 @@ test_roots(c(5e-11, 9.18e-9, 1e-5, 5e-8, 1e-9, 1))
 test_roots(c(5e-11, 6.24e-15, 1e-5, 5e-8, 1e-9, 1))
 test_roots(c(5e-11, 5, 1e-5, 5e-8, 1e-9, 1))
 test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 1))
-test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 30))
+
 # as alpha gets larger, ABC increases and reduces A more than C
+test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 30))
 test_roots(c(5e-11, 1.12e-6, 1e-5, 1.8e-6, 2.5e-7, 50))
 ```
 
 # NIMBLE FUNCTIONS
 ```{r}
+# args: parms = c(A_t, B_t, C_t, K_AB, K_BC, alpha)
+# returns: [ABC]
 wrap_solve <- function(parms) {
-  noncoop_sols <- noncoop_f(head(parms, -1))
-  init_guess <- sqrt(noncoop_sols)
+  noncoop_sols <- noncoop_f(head(parms, -1))  # non-cooperative solutions
+  init_guess <- sqrt(noncoop_sols)  # square-root transform 
   equilibrium_roots <- nleqslv(
     x = init_guess,
     fn = equilibrium_f,
@@ -126,11 +154,12 @@ wrap_solve <- function(parms) {
     parms = parms,
     control = list(maxit = 5000)
   )
-  coop_sols <- equilibrium_roots$x^2
+  coop_sols <- equilibrium_roots$x^2  # square transform to concentration units
 
-  return(coop_sols[3])
+  return(coop_sols[3])  # return [ABC]
 }
 
+# a nimbleRcall() used in NIMBLE model
 nimble_solve <- nimbleRcall(
   prototype = function(parms = double(1)) {},
   returnType = double(0),
@@ -139,6 +168,7 @@ nimble_solve <- nimbleRcall(
 ```
 
 ```{r}
+# test the nimbleRcall() in a NIMBLE model
 testModelCode <- nimbleCode({
     ABC[1] <- nimble_solve(x[1:6])
 })
@@ -147,11 +177,12 @@ testModel <- nimbleModel(testModelCode, check = FALSE, calculate = FALSE)
 
 ctestModel <- compileNimble(testModel)
 
-## Let's see if it works:
+## set x:
 ctestModel$x <- c(5e-11, 2.81, 1e-5, 1.8e-6, 2.5e-7, 50)
 
 ## Answer directly:
 wrap_solve(ctestModel$x)
+
 ## Answer via the nimble model:
 ctestModel$calculate('ABC[1]')
 ctestModel$ABC  # This result should match the answer calculated directly
@@ -159,21 +190,22 @@ ctestModel$ABC  # This result should match the answer calculated directly
 
 # NANOBRET DATA
 ```{r}
+# Nano-BRET assay data from 4 constructs plus wild type
 nanobret_csv <- read.csv("data/corrected_nanobret_df.csv")
 
 sorted_min <- sort(unique(nanobret_csv$Minutes))
 
-# subtract min mBU within Construct group
 nanobret_96 <- nanobret_csv %>% 
-  filter(Minutes %in% sorted_min[6:7]) %>%
+  filter(Minutes %in% sorted_min[6:7]) %>%  # filter data from Minute 96 or 97
   group_by(Construct) %>%
-  mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)) )
+  mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)) )  # subtract min mBU within each Construct group
 
 ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = Construct)) +
   geom_point() +
   geom_line() +
   scale_x_log10()
 
+# recode constructs as integers
 nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
   "VHL_WT SMARCA2_L1415S" = 1,
   "VHL_WT SMARCA2_E1420S" = 2,
@@ -195,34 +227,34 @@ ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = as.factor(construct_i
 ```{r}
 # nimble code
 code <- nimbleCode({
-  A_t ~ dexp(1)
+  # define priors for parameters
+  A_t ~ dexp(1)  # concentrations are defined on R+
   C_t ~ dexp(1)
-  constraint ~ dconstraint(0.2*C_t <= A_t & A_t <= 0.5*C_t)
-  beta ~ dnorm(0, sd=10)
-  kappa ~ dunif(0, 1)
-  sigma ~ dexp(10)
+  constraint ~ dconstraint(0.2*C_t <= A_t & A_t <= 0.5*C_t)  # set a constraint on A_t in terms of C_t
+  beta ~ dnorm(0, sd=10)  # beta will be exponentiated, so can be non-positive
+  kappa ~ dunif(0, 1)  # kappa is a proportion between 0 and 1
+  sigma ~ dexp(10)  # sigma is an error term defined on R+
   for (i in 1:N_constructs) {
-    alpha[i] ~ dlnorm(3, sdlog = 0.5)
+    alpha[i] ~ dlnorm(3, sdlog = 0.5)  # informed choice of prior for construct cooperativity
   }
-  alpha[5] <- WT_alpha
+  alpha[N_constructs + 1] <- WT_alpha  # set wild type cooperativity
 
   for (i in 1:N) {
-    B_t[i] <- B_x[i] * kappa
-    c[i] <- construct_int[i]
-      ABC[i] <- nimble_solve(c(A_t, B_t[i], C_t, K_AB, K_BC, alpha[c[i]]))
-    mu[i] <- ABC[i] * exp(beta)
-    y[i] ~ dnorm(mean = mu[i], sd = sigma)
+    B_t[i] <- B_x[i] * kappa  # intracellular concentration of degrader
+    c[i] <- construct_int[i]  # index for cooperativity
+    ABC[i] <- nimble_solve( c( A_t, B_t[i], C_t, K_AB, K_BC, alpha[c[i]] ) )
+    mu[i] <- ABC[i] * exp(beta)  # [ABC] scaled by a factor
+    y[i] ~ dnorm(mean = mu[i], sd = sigma)  # normal likelihood
   }
 })
 
-# list of fixed constants
-# units in uM
+# list of constants, units are in uM
 # N: number of rows
-# N_constructs: number of constructs
-# B_x: extracellular degrader concentration
-# construct_int: a vector containing integer index corresponding to alpha[i]
-# K_AB, K_BC: binary constants of dissociation
-# WT_alpha: cooperativity of wild type species
+# N_constructs: number of constructs, excluding wild type
+# B_x: vector containing extracellular concentrations of degrader
+# construct_int: vector containing integer indices i corresponding to alpha[i]
+# K_AB, K_BC: equilibrium dissociation constants of binary complexes
+# WT_alpha: cooperativity of wild type proteins
 constants <- list(
   N = nrow(nanobret_96),
   N_constructs = length(unique(nanobret_96$construct_int)) - 1,
@@ -233,24 +265,23 @@ constants <- list(
   WT_alpha = 26
 )
 
-# list specifying model data
-# y: ternary complex concentration multiplied by scaling factor
+# list of data
+# y: vector of ternary complex concentrations scaled by factor
 data <- list(
   y = nanobret_96$mBU_corrected,
-  constraint = 1
+  constraint = 1  # constraint on A_t is set to true
 )
 
-# list specifying initial values
-# VERIFY UNIFORMITY OF MEASUREMENT UNITS
+# list generates initial values
 inits_f <- function() {
-  C_t <- runif(n = 1, min = 0, max = 5)
+  C_t <- runif(n = 1, min = 0, max = 5)  # draw C_t
   
   list(
     C_t = C_t,
-    A_t = 0.35*C_t,
+    A_t = 0.35*C_t,  # define A_t in terms of C_t
     beta = rnorm(n = 1, mean = 0, sd = 1),
     kappa = runif(n = 1, min = 0.5, max = 1),
-    alpha = rnorm(n = 4, mean = 20, sd = 5),
+    alpha = rnorm(n = 5, mean = 20, sd = 5),  # vector of construct cooperativities
     sigma = rexp(n = 1, rate = 10)
   )
 }
@@ -258,12 +289,16 @@ inits_f <- function() {
 
 ```{r}
 # build the R model object
+# inits list provided to avoid warnings, but inits_f() will be used for sampling
 Rmodel <- nimbleModel(
   code = code,
   constants = constants,
   data = data,
   inits = list(A_t = 0.35, C_t = 1, beta = 1, kappa = 0.9, alpha = c(20, 25, 20, 20, 25), sigma = 0.1)
 )
+
+# sum of log probabilities from each node in model
+# should be real and negative
 Rmodel$calculate()
 ```
 
@@ -273,11 +308,13 @@ conf <- configureMCMC(Rmodel)
 
 Rmcmc <- buildMCMC(conf)
 ```
+
 # compile to C++, and run
 ```{r}
 Cmodel <- compileNimble(Rmodel)
 Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
 ```
+
 # run multiple MCMC chains
 ```{r}
 # samples <- runMCMC(Cmcmc, niter = 20000, nburnin = 1000, thin = 2, samplesAsCodaMCMC = TRUE)
@@ -286,10 +323,11 @@ samples_n3 <- runMCMC(Cmcmc, nchains = 4,
                       inits = inits_f, summary = TRUE, samplesAsCodaMCMC = TRUE)
 ```
 
-
 ```{r}
-# saveRDS(samples_n3, file = "data/nimble_fit_full_fix_WT_alpha.rds")
-samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
+# saving and reading sampling results to MCMC folder 
+
+# saveRDS(samples_n3, file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
+# samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 ```
 
 
@@ -297,8 +335,8 @@ samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 # samplesSummary(samples)
 # lapply(samples_n3, samplesSummary)
 
-samples_all <- do.call(rbind, samples_n3)
-ss_all <- samplesSummary(samples_all)
+samples_all <- do.call(rbind, samples_n3)  # combine samples from all chains
+ss_all <- samplesSummary(samples_all)  # summary statistics of combined samples
 
 tab <- round(
   ss_all[ , c("Mean", "Median", "95%CI_low", "95%CI_upp")],
@@ -336,9 +374,9 @@ samplesPlot(samples_n3, var = 'beta')
 ```
 
 ```{r}
+# Gelman-Rubin diagnostics assess parameter sampling convergence between chains
 GR.diag <- gelman.diag(samples_n3, multivariate = FALSE)
 GR.diag
-GR.diag$mpsrf
 ```
 
 ```{r}
@@ -414,7 +452,8 @@ chainsSummary(samples_n3, var = c("alpha[1]", "alpha[2]", "alpha[3]", "alpha[4]"
 ```
 
 
-## Plot predicted ABC
+## Plot predicted [ABC]
+### TODO: needs to be fixed
 ```{r}
 nanobret_96_1 <- nanobret_96 %>% filter(construct_int == 1)
 unique(nanobret_96_1$Construct)

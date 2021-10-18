@@ -330,7 +330,7 @@ samples_n3 <- runMCMC(Cmcmc, nchains = 4,
 # samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 ```
 
-
+# Summarize Parameter Posterior Samples 
 ```{r}
 # samplesSummary(samples)
 # lapply(samples_n3, samplesSummary)

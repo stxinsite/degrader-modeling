@@ -15,7 +15,7 @@ A NIMBLE model used to run Metropolis-Hastings MCMC sampling and R code for comp
 The following data must be provided to the model:
 - `N`: integer number of data points
 - `N_constructs`: integer number of protein mutation constructs *excluding* wild type
-- `B_x`: a vector containing extracellular concentrations ($[B]_x$) of PROTAC 
+- `B_x`: a vector containing extracellular concentrations ([B]_x) of PROTAC 
 - `construct_int`: an integer vector containing the cooperativity index corresponding to the data point's construct
 - `y`: a vector containing the response, a factor of ternary complex concentration
 

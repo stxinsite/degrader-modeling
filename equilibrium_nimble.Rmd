@@ -200,10 +200,22 @@ nanobret_96 <- nanobret_csv %>%
   group_by(Construct) %>%
   mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)) )  # subtract min mBU within each Construct group
 
-ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = Construct)) +
+ggplot(nanobret_96, aes(x = uM, 
+                        y = mBU_corrected, 
+                        color = factor(Construct, 
+                                       levels = c("VHL_WT SMARCA2_WT",
+                                                  "VHL_WT SMARCA2_E1420S",
+                                                  "VHL_WT SMARCA2_L1415S",
+                                                  "VHL_Y112F SMARCA2_WT",
+                                                  "VHL_R69Q SMARCA2_WT"),
+                                       ordered = F))) +
   geom_point() +
   geom_line() +
-  scale_x_log10()
+  scale_x_log10() +
+  guides(color = guide_legend(title = "Constructs")) +
+  labs(title = "Nano-BRET assay measurements",
+       x = bquote("[ACBI1] (" * mu * "M)"),
+       y = "mBU (corrected)")
 
 # recode constructs as integers
 nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
@@ -214,12 +226,18 @@ nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
   "VHL_WT SMARCA2_WT" = 5
 ))
 
-ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = as.factor(construct_int))) +
+ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = factor(construct_int, 
+                                                                  levels = c(5, 2, 1, 4, 3),
+                                                                  ordered = T))) +
   geom_point() +
   geom_line() +
   scale_x_log10() +
   guides(color = guide_legend(title = bquote(alpha[i]))) + 
-  scale_color_hue(labels = c("L1415s", "E1420S", "R69Q", "Y112F", "WT"))
+  scale_color_hue(labels = c("WT", "E1420S", "L1415S", "Y112F", "R69Q"))  +
+  labs(title = "Nano-BRET assay measurements",
+       x = bquote("[ACBI1] (" * mu * "M)"),
+       y = "mBU (corrected)")
+
 
 ```
 
@@ -327,7 +345,7 @@ samples_n3 <- runMCMC(Cmcmc, nchains = 4,
 # saving and reading sampling results to MCMC folder 
 
 # saveRDS(samples_n3, file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
-# samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
+samples_n3 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 ```
 
 # Summarize Parameter Posterior Samples 
@@ -338,17 +356,27 @@ samples_n3 <- runMCMC(Cmcmc, nchains = 4,
 samples_all <- do.call(rbind, samples_n3)  # combine samples from all chains
 ss_all <- samplesSummary(samples_all)  # summary statistics of combined samples
 
-tab <- round(
-  ss_all[ , c("Mean", "Median", "95%CI_low", "95%CI_upp")],
-  digits = 3
+
+tab <- ss_all[ , c("Mean", "Median", "95%CI_low", "95%CI_upp")]
+
+tab_t <- data.frame(t(tab))  # Transpose for easy iteration
+tab_t <- mapply(  # Iterate over each column
+  function(df, digits) {
+    formatC(df, format="f", digits=digits)
+  },
+  df=tab_t, digits=c(3, 3, rep(0, 5), 2, 2, 2)
 )
 
-rownames(tab) <- c("[A]$_t$", "[C]$_t$", 
-                   "$\\alpha_{L1415S}$", "$\\alpha_{E1420S}$", "$\\alpha_{R69Q}$", "$\\alpha_{Y112F}$", "$\\alpha_{WT}$",
-                   "$\\beta$", "$\\kappa$", "$\\sigma$"
+tab_t2 <- data.frame(t(tab_t))  # Transpose back
+# Re-create names
+rownames(tab_t2) <- c("[A]$_t$", "[C]$_t$", 
+                      "$\\alpha_{L1415S}$", "$\\alpha_{E1420S}$", "$\\alpha_{R69Q}$", "$\\alpha_{Y112F}$", "$\\alpha_{WT}$",
+                      "$\\beta$", "$\\kappa$", "$\\sigma$"
                    )
+colnames(tab_t2) <- colnames(tab)
 
-knitr::kable(tab, caption = "Mean, Median and 95% Bayesian Credible Intervals of Model Parameters") %>% 
+
+kable(tab_t2, caption = "Mean, Median and 95% Bayesian Credible Intervals of Model Parameters") %>% 
   kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
 ```
 
@@ -415,11 +443,13 @@ ggs.nanobret %>%
 ```{r}
 ggs.nanobret %>% 
   filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  mutate(Parameter = recode_factor(Parameter, A_t = "A[t]", C_t = "C[t]")) %>%
   ggs_traceplot(greek = TRUE, ) +
   theme_bw()
 
 ggs.nanobret %>% 
   filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  mutate(Parameter = recode_factor(Parameter, A_t = "A[t]", C_t = "C[t]")) %>%
   ggs_density(greek = TRUE, ) +
   theme_bw()
 ```
@@ -434,16 +464,25 @@ ggs.nanobret %>%
   filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
   ggs_caterpillar(greek = TRUE) + 
   theme_bw() +
+  theme(axis.text.y = element_text(size = 15)) +
   labs(title = "Highest Posterior Density Intervals",
-       subtitle = "Thick lines: 90%, Thin lines: 95%")
+       subtitle = "Thick lines: 90%, Thin lines: 95%") +
+  geom_vline(xintercept = 26, size = 1, color = "tomato") +
+  geom_text(aes(x = 26, label = "alpha[WT]", y = 1), 
+            parse = T, colour="tomato", size = 5, nudge_x = 1)
 ```
 
 ```{r}
+labels <- c(A_t = "A[t]", C_t = "C[t]", beta = "beta")
+
 ggs.nanobret %>%
   filter(Parameter %in% c("A_t", "C_t", "beta")) %>%
+  mutate(Parameter = recode_factor(Parameter, A_t = "A[t]", C_t = "C[t]")) %>%
   ggs_pairs(mapping = aes(color = Chain),
-            lower = list(continuous = wrap("points", alpha = 0.01))) +
-  theme_bw()
+            lower = list(continuous = wrap("points", alpha = 0.1)),
+            diag = list(continuous = wrap("densityDiag", alpha = 0.5, color = NA)),
+            labeller = "label_parsed") +
+  theme_bw() 
 ```
 
 

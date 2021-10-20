@@ -19,6 +19,12 @@ The following data must be provided to the model:
 - `construct_int`: an integer vector containing the cooperativity index corresponding to the data point's construct
 - `y`: a vector containing the response, a factor of ternary complex concentration
 
+## MCMC Results
+Samples from MCMC chains are saved in the `MCMC` folder and can be read and assigned by
+```
+samples <- readRDS(file = "MCMC/<RDS filename here>.rds")
+```
+
 ## Dependencies
 ### R dependencies
 - nleqslv

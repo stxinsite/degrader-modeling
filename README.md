@@ -25,6 +25,8 @@ Samples from MCMC chains are saved in the `MCMC` folder and can be read and assi
 samples <- readRDS(file = "MCMC/<RDS filename here>.rds")
 ```
 
+The results from the ACBI1-SMARCA2-VHL Nano-BRET data with full model are in `MCMC/nimble_fit_full.rds`, and the full model with fixed wild type cooperativity is in `MCMC/nimble_fit_full_fix_WT_alpha.rds`.
+
 ## Dependencies
 ### R dependencies
 - nleqslv

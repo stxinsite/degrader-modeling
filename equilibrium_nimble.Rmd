@@ -441,7 +441,10 @@ samples_n4 <- runMCMC(Cmcmc, nchains = 4,
 # saving and reading sampling results to MCMC folder 
 
 saveRDS(chain_output, file = "MCMC/nimble_fit_full.rds")
-samples_n4 <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
+samples_aFix <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
+samples_aFree <- readRDS(file = "MCMC/nimble_fit_full.rds")
+
+chain_output <- samples_aFree
 ```
 
 # Summarize Parameter Posterior Samples 
@@ -504,6 +507,7 @@ ggs.nanobret$Parameter <- plyr::revalue(ggs.nanobret$Parameter,
                                           "alpha[3]" = "alpha[R69Q]",
                                           "alpha[4]" = "alpha[Y112F]",
                                           "alpha[5]" = "alpha[WT]"))
+
 ```
 
 ```{r}
@@ -550,16 +554,51 @@ ggs.nanobret %>%
   ggs_running(family = "alpha", greek = TRUE) + 
   theme_bw()
 
-ggs.nanobret %>%
+ggs.fix <- ggs(as.mcmc.list(samples_aFix), 
+               family = "alpha"
+               )
+ggs.free <- ggs(as.mcmc.list(samples_aFree), 
+                family = "alpha"
+                )
+
+ggs.fix$Parameter <- plyr::revalue(ggs.fix$Parameter, 
+                                    c("alpha[1]" = "alpha[L1415S]",
+                                      "alpha[2]" = "alpha[E1420S]",
+                                      "alpha[3]" = "alpha[R69Q]",
+                                      "alpha[4]" = "alpha[Y112F]",
+                                      "alpha[5]" = "alpha[WT]"
+                                      )
+                                   )
+ggs.free$Parameter <- plyr::revalue(ggs.free$Parameter, 
+                                    c("alpha[1]" = "alpha[L1415S]",
+                                      "alpha[2]" = "alpha[E1420S]",
+                                      "alpha[3]" = "alpha[R69Q]",
+                                      "alpha[4]" = "alpha[Y112F]",
+                                      "alpha[5]" = "alpha[WT]"
+                                      )
+                                   )
+
+# ggs.nanobret %>%
   # filter(Parameter %in% c("alpha[L1415S]", "alpha[E1420S]", "alpha[R69Q]", "alpha[Y112F]")) %>%
-  ggs_caterpillar(family = "alpha", greek = TRUE) + 
-  theme_bw() +
-  theme(axis.text.y = element_text(size = 15)) +
-  labs(title = "Highest Posterior Density Intervals",
-       subtitle = "Thick lines: 90%, Thin lines: 95%") +
-  geom_vline(xintercept = 26, size = 1, color = "tomato") +
-  geom_text(aes(x = 26, label = "alpha[WT]", y = 1), 
-            parse = T, colour="tomato", size = 5, nudge_x = 1)
+ggs_caterpillar(D = list(ggs.fix, ggs.free),
+                model_labels = c("fixed alpha[WT]", "free alpha[WT]"),
+                greek = F) + 
+theme_bw() +
+# theme(axis.text.y = element_text(size = 1)) +
+labs(title = "Highest Posterior Density Intervals",
+     subtitle = "Thick lines: 90%, Thin lines: 95%") +
+geom_vline(xintercept = 26, size = 1, color = "tomato") +
+geom_text(aes(x = 26, label = "alpha[WT]", y = 1), 
+          parse = T, colour="tomato", size = 5, nudge_x = 2.5) +
+aes(color = factor(Parameter, 
+                   levels = c("alpha[WT]",
+                              "alpha[E1420S]",
+                              "alpha[L1415S]",
+                              "alpha[Y112F]",
+                              "alpha[R69Q]"),
+                   ordered = F)) +
+guides(color = guide_legend(title = "Cooperativity"))
+
 ```
 
 ```{r}

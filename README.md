@@ -20,12 +20,14 @@ The following data must be provided to the model:
 - `y`: a vector containing the response, a factor of ternary complex concentration
 
 ## MCMC Results
-Samples from MCMC chains are saved in the `MCMC` folder and can be read and assigned by
+Samples from MCMC chains are saved in the `MCMC` folder and can be read and assigned to an `R` object by
 ```
 samples <- readRDS(file = "MCMC/<RDS filename here>.rds")
 ```
 
-The results from the ACBI1-SMARCA2-VHL Nano-BRET data with full model are in `MCMC/nimble_fit_full.rds`, and the full model with fixed wild type cooperativity is in `MCMC/nimble_fit_full_fix_WT_alpha.rds`.
+An MCMC was fit to the Nano-BRET data, and the samples objects are in the `MCMC` folder:
+- `nimble_fit_full.rds`: full model 
+- `nimble_fit_full_fix_WT_alpha.rds`: full model with fixed wild type cooperativity
 
 ## Dependencies
 ### R dependencies

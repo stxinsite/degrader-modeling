@@ -440,7 +440,8 @@ samples_n4 <- runMCMC(Cmcmc, nchains = 4,
 ```{r}
 # saving and reading sampling results to MCMC folder 
 
-saveRDS(chain_output, file = "MCMC/nimble_fit_full.rds")
+# saveRDS(samples_n4, file = "MCMC/nimble_fit_full.rds")
+
 samples_aFix <- readRDS(file = "MCMC/nimble_fit_full_fix_WT_alpha.rds")
 samples_aFree <- readRDS(file = "MCMC/nimble_fit_full.rds")
 
@@ -499,7 +500,7 @@ GR.diag
 
 ```{r}
 # ggs.nanobret <- ggs(samples_n4)
-ggs.nanobret <- ggs(as.mcmc.list(chain_output))
+ggs.nanobret <- ggs(chain_output)
 
 ggs.nanobret$Parameter <- plyr::revalue(ggs.nanobret$Parameter, 
                                         c("alpha[1]" = "alpha[L1415S]",
@@ -554,10 +555,10 @@ ggs.nanobret %>%
   ggs_running(family = "alpha", greek = TRUE) + 
   theme_bw()
 
-ggs.fix <- ggs(as.mcmc.list(samples_aFix), 
+ggs.fix <- ggs(samples_aFix, 
                family = "alpha"
                )
-ggs.free <- ggs(as.mcmc.list(samples_aFree), 
+ggs.free <- ggs(samples_aFree, 
                 family = "alpha"
                 )
 

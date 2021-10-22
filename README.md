@@ -10,6 +10,8 @@ The data used to fit this model come from Nano-BRET assays and can be found [her
 A NIMBLE model used to run Metropolis-Hastings MCMC sampling and R code for compilation can be found in `equilibrium_nimble.Rmd`. The following constants must be known a priori before fitting the model:
 - K_AB: equilibrium dissociation constant of target protein and PROTAC binary complex
 - K_BC: equilibrium dissociation constant of E3 ligase and PROTAC binary complex
+
+Additionally, the following parameter(s) may be specified a priori:
 - alpha_WT: cooperativity of wild type E3 ligase and wild type target protein
 
 The following data must be provided to the model:

@@ -10,6 +10,8 @@ The data used to fit this model come from Nano-BRET assays and can be found [her
 A NIMBLE model used to run Metropolis-Hastings MCMC sampling and R code for compilation can be found in `equilibrium_nimble.Rmd`. The following constants must be known a priori before fitting the model:
 - K_AB: equilibrium dissociation constant of target protein and PROTAC binary complex
 - K_BC: equilibrium dissociation constant of E3 ligase and PROTAC binary complex
+
+Additionally, the following parameter(s) may be specified a priori:
 - alpha_WT: cooperativity of wild type E3 ligase and wild type target protein
 
 The following data must be provided to the model:
@@ -20,12 +22,14 @@ The following data must be provided to the model:
 - `y`: a vector containing the response, a factor of ternary complex concentration
 
 ## MCMC Results
-Samples from MCMC chains are saved in the `MCMC` folder and can be read and assigned by
+Samples from MCMC chains are saved in the `MCMC` folder and can be read and assigned to an `R` object by
 ```
 samples <- readRDS(file = "MCMC/<RDS filename here>.rds")
 ```
 
-The results from the ACBI1-SMARCA2-VHL Nano-BRET data with full model are in `MCMC/nimble_fit_full.rds`, and the full model with fixed wild type cooperativity is in `MCMC/nimble_fit_full_fix_WT_alpha.rds`.
+An MCMC was fit to the Nano-BRET data, and the samples objects are in the `MCMC` folder:
+- `nimble_fit_full.rds`: full model 
+- `nimble_fit_full_fix_WT_alpha.rds`: full model with fixed wild type cooperativity
 
 ## Dependencies
 ### R dependencies

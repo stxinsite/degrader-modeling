@@ -781,29 +781,41 @@ alpha <- c(17, 27, 13, 15, 26)
 K_AB <- 9.26  # PROTAC to target
 K_BC <- 0.0694  # PROTAC to E3
 
-uM <- numeric(nrow(nanobret_96))
-mBU_corrected <- numeric(nrow(nanobret_96))
+B_tArray <- 10 ^ seq(log10(0.00016), log10(5), length.out = 50)
+constructArray <- 1:5
+constructNames <- c(
+  "VHL_WT SMARCA2_L1415S", 
+  "VHL_WT SMARCA2_E1420S", 
+  "VHL_R69Q SMARCA2_WT", 
+  "VHL_Y112F SMARCA2_WT", 
+  "VHL_WT SMARCA2_WT"
+  )
 
-for (i in 1:nrow(nanobret_96)) {
-  dataPoint <- nanobret_96[i,]
-  B_t <- dataPoint[['uM']]
-  constructInt <- dataPoint[['construct_int']]
-  
-  parms <- c(A_t, B_t, C_t, K_AB, K_BC, alpha[constructInt])
-  ABC <- wrap_solve(parms)
-  mBU <- ABC * exp(beta)
-  
-  uM[i] <- B_t
-  mBU_corrected[i] <- mBU
-}
+N_B_t <- length(B_tArray)
+N_construct <- length(constructArray)
 
 nanobret_96_fit <- data.frame(
-  uM,
-  mBU_corrected,
-  Construct = nanobret_96$Construct,
-  source = "predicted"
+  uM = numeric(N_B_t * N_construct), 
+  mBU_corrected = numeric(N_B_t * N_construct), 
+  Construct = character(N_B_t * N_construct)
 )
 
+for (i in 1:N_construct) {
+  for (j in 1:N_B_t) {
+    B_t <- B_tArray[j]
+    constructInt <- constructArray[i]
+    
+    parms <- c(A_t, B_t, C_t, K_AB, K_BC, alpha[constructInt])
+    ABC <- wrap_solve(parms)
+    mBU <- ABC * exp(beta)
+
+    nanobret_96_fit[(i-1)*N_B_t + j, ] <- c(B_t, mBU, constructNames[constructInt])
+  }
+}
+
+nanobret_96_fit$source <- "predicted"
+nanobret_96_fit$uM <- as.numeric(nanobret_96_fit$uM)
+nanobret_96_fit$mBU_corrected <- as.numeric(nanobret_96_fit$mBU_corrected)
 ```
 
 ## Combine observed and predicted mBU
@@ -842,27 +854,4 @@ ggplot(nanobret_96_combined,
         legend.text=element_text(size=15), #change font size of legend text
         legend.title=element_text(size=18)) #change font size of legend title 
 ggsave("mBU_VHL_SMARCA2_fixed_WT_alpha_fit.png", path = "plots/", width = 12, height = 8, units = "in")
-```
-nanobret_96_1 <- nanobret_96 %>% filter(construct_int == 1)
-unique(nanobret_96_1$Construct)
-
-samplesSum <- samplesSummary(samples)
-mBU_pred <- numeric(length = nrow(nanobret_96_1))
-for (i in 1:nrow(nanobret_96_1)) {
-  parms <- c(.051, nanobret_96_1$uM[i],
-             .1611, 1.8, .25, 26.9)
-  ABC <- wrap_solve(parms = parms)
-  mBU_pred[i] <- ABC * samplesSum['beta','Mean']
-}
-
-nanobret_96_1$mBU_pred <- mBU_pred
-
-df <- data.frame(uM = rep(nanobret_96_1$uM, 2),
-                 mBU = c(nanobret_96_1$mBU_corrected, nanobret_96_1$mBU_pred),
-                 type = c(rep("observed", nrow(nanobret_96_1)), rep("predicted", nrow(nanobret_96_1)))
-               )
-ggplot(df, aes(x = uM, y = mBU, color = type)) +
-  geom_point() +
-  geom_line() +
-  scale_x_log10()
 ```

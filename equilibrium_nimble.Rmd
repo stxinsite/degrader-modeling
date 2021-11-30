@@ -145,7 +145,17 @@ sorted_min <- sort(unique(nanobret_csv$Minutes))
 nanobret_96 <- nanobret_csv %>% 
   filter(Minutes %in% sorted_min[6:7]) %>%  # filter data from Minute 96 or 97
   group_by(Construct) %>%
-  mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)) )  # subtract min mBU within each Construct group
+  mutate(mBU_corrected = (mBU_corrected - min(mBU_corrected)),  # subtract min mBU within each Construct group
+         construct_int = recode(Construct,  # recode constructs as integers
+            "VHL_WT SMARCA2_L1415S" = 1,
+            "VHL_WT SMARCA2_E1420S" = 2,
+            "VHL_R69Q SMARCA2_WT" = 3,
+            "VHL_Y112F SMARCA2_WT" = 4,
+            "VHL_WT SMARCA2_WT" = 5
+            ))  
+
+
+
 ```
 
 ## Plot observed mBU
@@ -179,15 +189,6 @@ ggsave("mBU_VHL_SMARCA2_observed.png",
        width = 12,
        height = 8,
        units = "in")
-
-# recode constructs as integers
-nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
-  "VHL_WT SMARCA2_L1415S" = 1,
-  "VHL_WT SMARCA2_E1420S" = 2,
-  "VHL_R69Q SMARCA2_WT" = 3,
-  "VHL_Y112F SMARCA2_WT" = 4,
-  "VHL_WT SMARCA2_WT" = 5
-))
 
 # set legend labels
 ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = factor(construct_int, 
@@ -781,7 +782,7 @@ alpha <- c(17, 27, 13, 15, 26)
 K_AB <- 9.26  # PROTAC to target
 K_BC <- 0.0694  # PROTAC to E3
 
-B_tArray <- 10 ^ seq(log10(0.00016), log10(5), length.out = 50)
+B_tArray <- 10 ^ seq(log10(0.0001), log10(5), length.out = 50)
 constructArray <- 1:5
 constructNames <- c(
   "VHL_WT SMARCA2_L1415S", 

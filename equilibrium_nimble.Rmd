@@ -160,8 +160,8 @@ ggplot(nanobret_96, aes(x = uM,
                                                   "VHL_Y112F SMARCA2_WT",
                                                   "VHL_R69Q SMARCA2_WT"),
                                        ordered = F))) +
-  geom_point(size = 1.5) +
-  geom_line(size = 1) +
+  geom_point(size = 5) +
+#  geom_line(size = 1) +
   scale_x_log10() +
   guides(color = guide_legend(title = "Constructs")) +
   labs(title = "Nano-BRET assay measurements",
@@ -193,7 +193,7 @@ nanobret_96 <- nanobret_96 %>% mutate(construct_int = recode(Construct,
 ggplot(nanobret_96, aes(x = uM, y = mBU_corrected, color = factor(construct_int, 
                                                                   levels = c(5, 2, 1, 4, 3),
                                                                   ordered = T))) +
-  geom_point(size=1.5) +
+  geom_point(size=3) +
   geom_line(size=1) +
   scale_x_log10() +
   guides(color = guide_legend(title = bquote(alpha[i]))) + 
@@ -775,7 +775,7 @@ ctestModel$ABC  # This result should match the answer calculated directly
 ```{r}
 A_t <- 0.013
 C_t <- 0.034
-beta <- 8.58
+beta <- 8.1  # mean 8.58
 kappa <- 0.95
 alpha <- c(17, 27, 13, 15, 26)
 K_AB <- 9.26  # PROTAC to target
@@ -796,7 +796,7 @@ N_construct <- length(constructArray)
 
 nanobret_96_fit <- data.frame(
   uM = numeric(N_B_t * N_construct), 
-  mBU_corrected = numeric(N_B_t * N_construct), 
+  mBU_predicted = numeric(N_B_t * N_construct), 
   Construct = character(N_B_t * N_construct)
 )
 
@@ -813,37 +813,37 @@ for (i in 1:N_construct) {
   }
 }
 
-nanobret_96_fit$source <- "predicted"
 nanobret_96_fit$uM <- as.numeric(nanobret_96_fit$uM)
-nanobret_96_fit$mBU_corrected <- as.numeric(nanobret_96_fit$mBU_corrected)
+nanobret_96_fit$mBU_predicted <- as.numeric(nanobret_96_fit$mBU_predicted)
 ```
 
 ## Combine observed and predicted mBU
 ```{r}
 nanobret_96_obs <- nanobret_96 %>%
-  select(uM, mBU_corrected, Construct) %>%
-  mutate(source = "observed")
+  select(uM, mBU_corrected, Construct)
 
-nanobret_96_combined <- rbind(nanobret_96_obs, nanobret_96_fit)
+nanobret_96_combined <- merge.data.frame(nanobret_96_obs, nanobret_96_fit, by = "Construct")
+head(nanobret_96_combined)
 ```
 
 ## Plot fitted and observed mBU
 ```{r}
-ggplot(nanobret_96_combined, 
-       aes(x = uM, 
-           y = mBU_corrected, 
-          color = factor(Construct, 
-                         levels = c("VHL_WT SMARCA2_WT",
-                                    "VHL_WT SMARCA2_E1420S",
-                                    "VHL_WT SMARCA2_L1415S",
-                                    "VHL_Y112F SMARCA2_WT",
-                                    "VHL_R69Q SMARCA2_WT"),
-                         ordered = F))) +
-  geom_point(size = 1.5) +
-  geom_line(size = 1, 
-            aes(linetype = source)) +
+ggplot(data = nanobret_96_combined, aes(x = uM.y, y = mBU_predicted, color = factor(Construct, 
+    levels = c(
+      "VHL_WT SMARCA2_WT",
+      "VHL_WT SMARCA2_E1420S",
+      "VHL_WT SMARCA2_L1415S",
+      "VHL_Y112F SMARCA2_WT",
+      "VHL_R69Q SMARCA2_WT"
+    ), 
+    ordered = F
+  ))) +
+  geom_line(size = 1.5, aes(alpha = "fitted")) + 
+  geom_point(size = 4, aes(x = uM.x, y = mBU_corrected, alpha = "observed")) +
   scale_x_log10() +
   guides(color = guide_legend(title = "Constructs")) +
+  scale_alpha_manual(name = NULL, values = c(1, 1),
+                     guide = guide_legend(override.aes = list(linetype = c(1, 0), shape = c(NA, 16) ))) +
   labs(title = "Nano-BRET assay measurements and fit",
        x = bquote("[ACBI1] (" * mu * "M)"),
        y = "mBU") +
@@ -852,6 +852,9 @@ ggplot(nanobret_96_combined,
         axis.title=element_text(size=18), #change font size of axis titles
         plot.title=element_text(size=20), #change font size of plot title
         legend.text=element_text(size=15), #change font size of legend text
-        legend.title=element_text(size=18)) #change font size of legend title 
+        legend.title=element_text(size=18)) #change font size of legend title
+
 ggsave("mBU_VHL_SMARCA2_fixed_WT_alpha_fit.png", path = "plots/", width = 12, height = 8, units = "in")
 ```
+
+

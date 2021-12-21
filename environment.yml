@@ -1,0 +1,13 @@
+name: beanmachine
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+      - beanmachine
+      - torch
+      - arviz
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn

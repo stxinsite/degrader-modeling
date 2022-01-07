@@ -14,6 +14,8 @@ from math import sqrt, exp, log
 """
 EQUILIBRIUM SYSTEM AND JACOBIAN OF F WRT TO [A], [C], [ABC]
 """
+
+
 def equilibrium_f(variables, A_t, B_t, C_t, K_AB, K_BC, alpha):
     """"System of equations describes concentrations at equilibrium"""
     A = np.square(variables[0])

@@ -4,6 +4,7 @@ dependencies:
   - pip
   - pip:
       - beanmachine
+      - numpyro
       - torch
       - arviz
   - numpy

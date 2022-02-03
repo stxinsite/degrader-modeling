@@ -621,15 +621,17 @@ ggs.free$Parameter <- plyr::revalue(ggs.free$Parameter,
 
 
 ## alpha caterpillar plots
+
+
 ```{r}
 ggs.fix %>%
+  filter(Parameter != "alpha[WT]") %>%
   ggs_caterpillar(greek = T) +
   theme_bw() +
-  labs(title = "Highest Posterior Density Intervals",
-       subtitle = "Thick lines: 90%, Thin lines: 95%") +
+  labs(x="", y="Mutant cooperativity") +
   geom_vline(xintercept = 26, size = 1, color = "tomato") +
   geom_text(aes(x = 26, label = "alpha[WT]", y = 1), 
-            parse = T, colour="tomato", size = 5, nudge_x = 1.5) +
+            parse = T, colour="tomato", size = 6, nudge_x = 2.3) +
   aes(color = factor(Parameter, 
                      levels = c("alpha[WT]",
                                 "alpha[E1420S]",
@@ -639,14 +641,15 @@ ggs.fix %>%
                      ordered = F)) +
   guides(color = guide_legend(title = "Cooperativity")) +
   theme(# text=element_text(size=20), #change font size of all text
-      axis.text=element_text(size=18), #change font size of axis text
-      axis.title=element_text(size=18), #change font size of axis titles
-      plot.title=element_text(size=20), #change font size of plot title
-      plot.subtitle=element_text(size=15),
-      legend.text=element_text(size=15), #change font size of legend text
-      legend.title=element_text(size=18)) #change font size of legend title 
-ggsave("caterpillar_plot_fixed_WT_alpha.png", path = "plots/", width = 12, height = 8, units = "in")
+      axis.text=element_text(size=13), #change font size of axis text
+      axis.title=element_text(size=13), #change font size of axis titles
+      legend.position="none", #change font size of legend text
+      ) 
 
+ggsave("caterpillar_plot_fixed_WT_alpha.png", path = "plots/", width = 4, height = 3.5, units = "in")
+```
+
+```{r}
 ggs.free %>%
   ggs_caterpillar(greek = T) +
   theme_bw() +
@@ -782,7 +785,7 @@ alpha <- c(17, 27, 13, 15, 26)
 K_AB <- 9.26  # PROTAC to target
 K_BC <- 0.0694  # PROTAC to E3
 
-B_tArray <- 10 ^ seq(log10(0.0001), log10(5), length.out = 50)
+B_tArray <- 10 ^ seq(log10(0.0001), log10(10), length.out = 100)
 constructArray <- 1:5
 constructNames <- c(
   "VHL_WT SMARCA2_L1415S", 
@@ -825,10 +828,13 @@ nanobret_96_obs <- nanobret_96 %>%
 
 nanobret_96_combined <- merge.data.frame(nanobret_96_obs, nanobret_96_fit, by = "Construct")
 head(nanobret_96_combined)
+
+write.csv(nanobret_96_combined, file="data/fitted_nanobret.csv", row.names = FALSE)
 ```
 
 ## Plot fitted and observed mBU
 ```{r}
+library(scales)
 ggplot(data = nanobret_96_combined, aes(x = uM.y, y = mBU_predicted, color = factor(Construct, 
     levels = c(
       "VHL_WT SMARCA2_WT",
@@ -839,23 +845,28 @@ ggplot(data = nanobret_96_combined, aes(x = uM.y, y = mBU_predicted, color = fac
     ), 
     ordered = F
   ))) +
-  geom_line(size = 1.5, aes(alpha = "fitted")) + 
-  geom_point(size = 4, aes(x = uM.x, y = mBU_corrected, alpha = "observed")) +
-  scale_x_log10() +
-  guides(color = guide_legend(title = "Constructs")) +
+  theme_bw() +
+  geom_line(size = 1, aes(alpha = "fitted")) + 
+  geom_point(size = 2, aes(x = uM.x, y = mBU_corrected, alpha = "observed")) +
+  scale_x_log10(limits=c(1e-4, 10), breaks=c(1e-4, 1e-3, 1e-2, 0.1, 1, 10), labels=trans_format('log10',math_format(10^.x))) +
+  guides(color = guide_legend(title = "Mutant")) +
+  scale_color_hue(labels = c("WT", "E1420S", "L1415S", "Y112F", "R69Q")) +
   scale_alpha_manual(name = NULL, values = c(1, 1),
                      guide = guide_legend(override.aes = list(linetype = c(1, 0), shape = c(NA, 16) ))) +
-  labs(title = "Nano-BRET assay measurements and fit",
-       x = bquote("[ACBI1] (" * mu * "M)"),
-       y = "mBU") +
+  labs(x = bquote("ACBI1 (" * mu * "M)"), y = "mBU") +
   theme(# text=element_text(size=20), #change font size of all text
-        axis.text=element_text(size=18), #change font size of axis text
-        axis.title=element_text(size=18), #change font size of axis titles
-        plot.title=element_text(size=20), #change font size of plot title
-        legend.text=element_text(size=15), #change font size of legend text
-        legend.title=element_text(size=18)) #change font size of legend title
+        axis.text=element_text(size=13), #change font size of axis text
+        axis.title=element_text(size=13), #change font size of axis titles
+        legend.text=element_text(size=9), #change font size of legend text
+        legend.title=element_text(size=9),
+        legend.position = c(.02, .98),
+        legend.justification = c("left", "top"),
+        legend.box.just = "left",
+        # legend.background = element_rect(fill='transparent'), #transparent legend bg
+        # legend.box.background = element_rect(fill='transparent'), #transparent legend panel,
+        ) #change font size of legend title
 
-ggsave("mBU_VHL_SMARCA2_fixed_WT_alpha_fit.png", path = "plots/", width = 12, height = 8, units = "in")
+ggsave("mBU_VHL_SMARCA2_fixed_WT_alpha_fit.png", path = "plots/", width = 4, height = 3.5, units = "in")
 ```
 
 
